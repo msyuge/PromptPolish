@@ -28,8 +28,12 @@ make clean
 
 ## Структура
 - `project.yml` — описание проекта (таргеты PromptPolish и PromptPolishTests).
-- `PromptPolish/App` — точка входа, MenuBarExtra.
-- `PromptPolish/Resources` — Info.plist (генерируется XcodeGen из `project.yml`), ресурсы.
+- `PromptPolish/App` — точка входа, MenuBarExtra, `ImproveCoordinator` (весь сценарий).
+- `PromptPolish/TextBridge` — чтение/замена текста: AXUIElement, fallback ⌘A/⌘C/⌘V, снимок буфера обмена.
+- `PromptPolish/LLM` — `LLMEngine` (actor, MLX), `PromptBuilder`, очистка ответа, адаптеры Hugging Face.
+- `PromptPolish/Chat` — `ChatTarget`: определение чата по bundle ID и URL страницы.
+- `PromptPolish/Preview` — плавающая NSPanel превью и её размещение.
+- `PromptPolish/Resources` — Info.plist (генерируется XcodeGen), `SystemPrompt.txt`, `ChatStyles.json` (подсказки под чаты).
 - `PromptPolishTests` — unit-тесты (хостятся в приложении).
 
 ## Окружение

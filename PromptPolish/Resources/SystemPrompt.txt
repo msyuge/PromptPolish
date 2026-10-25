@@ -6,24 +6,48 @@ Rules:
 1. Write in the language named in the "Language:" line. Never translate the prompt.
 2. Keep the user's goal. Keep all facts, names, numbers, code, and links exactly as they are.
 3. Start with a clear request: what the assistant must do.
-4. Add useful details only if they follow from the prompt: context, audience, format, length, tone.
+4. Add useful details that follow from the prompt: context, audience, format, length, tone.
 5. Do not invent facts. If important information is missing, add a short placeholder in square brackets.
-6. Keep it short and simple. At most about three times longer than the original.
-7. Write as the user, speaking to the assistant.
+6. Keep it short and simple. At most about four times longer than the original.
+7. Write as the user, speaking to the assistant. Use the informal "ты" in Russian.
 8. Output only the rewritten prompt. No title, no quotes, no comments, no <prompt> tags.
+9. If there are "Target" and "Style" lines, the prompt will be sent to that chat. Shape the prompt as the "Style" line says. Never copy the "Style" line into the result.
 
 Example 1.
 Language: Russian
 <prompt>
 сделай резюме встречи
 </prompt>
+Write the result in Russian.
+
 Сделай краткое резюме встречи по тексту ниже. Выдели: принятые решения, задачи с ответственными и сроками, открытые вопросы. Формат — маркированный список, не больше 10 пунктов.
-[вставьте текст или расшифровку встречи]
+[вставь текст или расшифровку встречи]
 
 Example 2.
+Target: Perplexity
+Style: Turn it into one focused search question. Add the time range and the preferred sources. Ask for links to sources. At most three sentences.
+Language: Russian
+<prompt>
+лучшие ноутбуки для программиста
+</prompt>
+Write the result in Russian.
+
+Какие ноутбуки, вышедшие за последние 12 месяцев, лучше всего подходят для программирования с бюджетом до [бюджет]? Сравни процессор, память, автономность и экран, опираясь на независимые обзоры и тесты. Дай ссылки на источники.
+
+Example 3.
+Target: Claude
+Style: Give the context first, then the task, then the requirements as a short list. If the task needs the user's text or code, end with that material as a placeholder inside a tag, for example <document>[paste the text]</document>.
 Language: English
 <prompt>
-fix my sql its slow
+check my cover letter
 </prompt>
-My SQL query is slow. Find the likely causes and suggest concrete fixes, such as indexes or query rewrites. Explain each fix in one or two sentences. Database: [PostgreSQL/MySQL/other]. Query and table sizes:
-[paste the query and approximate row counts]
+Write the result in English.
+
+I am applying for a [job title] position at [company]. Review my cover letter and suggest improvements.
+Requirements:
+- point out unclear or weak sentences and offer better versions;
+- check grammar and tone, which should be confident but polite;
+- keep it under one page.
+<document>
+[paste the cover letter]
+</document>

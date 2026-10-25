@@ -30,13 +30,22 @@ final class SystemTextBridge: TextBridge {
                     range: focused.range,
                     isWholeValue: focused.isWholeValue,
                     isWebContent: focused.isWebContent
-                )
+                ),
+                pageURL: focused.pageURL,
+                anchor: focused.anchor
             )
         }
 
+        let context = AccessibilityText.focusedContext()
         let copied = try await clipboard.copySelection(selectAllIfEmpty: true)
         logger.notice("capture via clipboard, length=\(copied.text.count), selectedAll=\(copied.selectedAll), app=\(app.bundleIdentifier ?? "?", privacy: .public)")
-        return CapturedText(text: copied.text, app: app, source: .clipboard(selectedAll: copied.selectedAll))
+        return CapturedText(
+            text: copied.text,
+            app: app,
+            source: .clipboard(selectedAll: copied.selectedAll),
+            pageURL: context.pageURL,
+            anchor: context.anchor
+        )
     }
 
     func replace(_ captured: CapturedText, with text: String) async throws {

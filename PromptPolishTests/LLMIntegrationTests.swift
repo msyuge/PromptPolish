@@ -4,10 +4,12 @@ import XCTest
 /// Реальная генерация на модели. Запускается только через `make integration`:
 /// при первом запуске скачивает веса (≈1,7 ГБ), дальше работает офлайн.
 final class LLMIntegrationTests: XCTestCase {
-    private static let samples = [
-        "напиши пост про кофе",
-        "объясни что такое замыкания в swift",
-        "summarize this article for my boss",
+    private static let samples: [(String, ChatTarget)] = [
+        ("напиши пост про кофе", .generic),
+        ("объясни что такое замыкания в swift", .claude),
+        ("объясни что такое замыкания в swift", .chatGPT),
+        ("какие новости про apple vision pro", .perplexity),
+        ("summarize this article for my boss", .claude),
     ]
 
     func testGeneratesImprovedPrompts() async throws {
@@ -21,16 +23,16 @@ final class LLMIntegrationTests: XCTestCase {
         try await engine.prepare()
         var report = "Модель: \(engine.spec.id)\nЗагрузка: \(ContinuousClock.now - loadStart)\n"
 
-        for prompt in Self.samples {
+        for (prompt, target) in Self.samples {
             let start = ContinuousClock.now
             var raw = ""
             var chunks = 0
-            for try await chunk in engine.improve(prompt) {
+            for try await chunk in engine.improve(prompt, for: target) {
                 raw += chunk
                 chunks += 1
             }
             let cleaned = ModelOutputCleaner.clean(raw)
-            report += "\n=== \(prompt)\n\(cleaned)\n--- чанков: \(chunks), время: \(ContinuousClock.now - start)\n"
+            report += "\n=== [\(target.rawValue)] \(prompt)\n\(cleaned)\n--- чанков: \(chunks), время: \(ContinuousClock.now - start)\n"
 
             XCTAssertGreaterThan(chunks, 1, "Ожидался стриминг несколькими кусками")
             XCTAssertFalse(cleaned.isEmpty)

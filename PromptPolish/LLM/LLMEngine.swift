@@ -49,11 +49,11 @@ actor LLMEngine {
     }
 
     /// Стримит улучшенную версию промта кусками текста. Отмена задачи-потребителя останавливает генерацию.
-    nonisolated func improve(_ prompt: String) -> AsyncThrowingStream<String, Error> {
+    nonisolated func improve(_ prompt: String, for target: ChatTarget = .generic) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    try await self.generate(prompt) { continuation.yield($0) }
+                    try await self.generate(prompt, target: target) { continuation.yield($0) }
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
@@ -63,9 +63,9 @@ actor LLMEngine {
         }
     }
 
-    private func generate(_ prompt: String, onChunk: @Sendable (String) -> Void) async throws {
+    private func generate(_ prompt: String, target: ChatTarget, onChunk: @Sendable (String) -> Void) async throws {
         let container = try await loadedContainer(onEvent: { _ in })
-        let chat: [Chat.Message] = builder.messages(for: prompt).map { turn in
+        let chat: [Chat.Message] = builder.messages(for: prompt, target: target).map { turn in
             switch turn.role {
             case .system: .system(turn.content)
             case .user: .user(turn.content)

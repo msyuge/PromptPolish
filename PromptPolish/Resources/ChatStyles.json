@@ -1,0 +1,10 @@
+{
+  "claude": "Give the context first, then the task, then the requirements as a short list. If the task needs the user's text or code, end with that material as a placeholder inside a tag, for example <document>[paste the text]</document>.",
+  "chatGPT": "Start with one sentence that gives the assistant a fitting expert role. Then the task. Then the expected answer structure as a short numbered list.",
+  "gemini": "State the task directly. Then name the exact output format: a table with named columns, a list, or short paragraphs.",
+  "perplexity": "Turn it into one focused search question. Add the time range and the preferred sources. Ask for links to sources. At most three sentences.",
+  "deepSeek": "State the goal, the constraints, and what a good result looks like. Do not ask it to think step by step.",
+  "grok": "State the task and the needed format plainly and briefly.",
+  "copilot": "Make it a short, direct task with a clear output format.",
+  "mistral": "Write the task, the context, and the output format, each in one or two short sentences."
+}

@@ -1,3 +1,4 @@
+import AppKit
 import ApplicationServices
 
 /// Работа с текстом сфокусированного элемента через AXUIElement.
@@ -9,6 +10,9 @@ enum AccessibilityText {
         let range: CFRange
         let isWholeValue: Bool
         let isWebContent: Bool
+        let pageURL: URL?
+        /// Прямоугольник выделения (или поля) в координатах AppKit.
+        let anchor: CGRect?
     }
 
     /// Сколько ждать ответа зависшего приложения, прежде чем перейти к буферу обмена.
@@ -30,19 +34,27 @@ enum AccessibilityText {
             throw TextBridgeError.secureField
         }
 
-        let isWebContent = hasWebAreaAncestor(element)
+        let webArea = webArea(containing: element)
+        let isWebContent = webArea != nil
+        let pageURL = webArea.flatMap(url(of:))
 
         if let selected: String = attribute(kAXSelectedTextAttribute, of: element),
            !selected.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
            let range = selectedRange(of: element) {
-            return Focused(element: element, text: selected, range: range, isWholeValue: false, isWebContent: isWebContent)
+            return Focused(
+                element: element, text: selected, range: range, isWholeValue: false,
+                isWebContent: isWebContent, pageURL: pageURL, anchor: anchor(for: range, in: element)
+            )
         }
 
         guard let role, editableRoles.contains(role) || isSettable(kAXValueAttribute, of: element),
               let value: String = attribute(kAXValueAttribute, of: element),
               !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         let whole = CFRange(location: 0, length: (value as NSString).length)
-        return Focused(element: element, text: value, range: whole, isWholeValue: true, isWebContent: isWebContent)
+        return Focused(
+            element: element, text: value, range: whole, isWholeValue: true,
+            isWebContent: isWebContent, pageURL: pageURL, anchor: anchor(for: whole, in: element)
+        )
     }
 
     /// Заменяет диапазон текста и проверяет, что новое значение действительно появилось в поле.
@@ -62,6 +74,15 @@ enum AccessibilityText {
         AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, rangeValue)
     }
 
+    /// Адрес страницы и положение сфокусированного элемента, когда текст пришлось копировать через ⌘C.
+    static func focusedContext() -> (pageURL: URL?, anchor: CGRect?) {
+        let systemWide = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(systemWide, messagingTimeout)
+        guard let element: AXUIElement = attribute(kAXFocusedUIElementAttribute, of: systemWide) else { return (nil, nil) }
+        AXUIElementSetMessagingTimeout(element, messagingTimeout)
+        return (webArea(containing: element).flatMap(url(of:)), frame(of: element))
+    }
+
     /// Electron-приложения (в том числе десктопный Claude) строят дерево Accessibility только по этому флагу.
     private static func enableElectronAccessibility(pid: pid_t) {
         let app = AXUIElementCreateApplication(pid)
@@ -69,14 +90,52 @@ enum AccessibilityText {
         AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
     }
 
-    private static func hasWebAreaAncestor(_ element: AXUIElement) -> Bool {
+    private static func webArea(containing element: AXUIElement) -> AXUIElement? {
         var current: AXUIElement? = element
         for _ in 0..<40 {
-            guard let node = current else { return false }
-            if attribute(kAXRoleAttribute, of: node) as String? == "AXWebArea" { return true }
+            guard let node = current else { return nil }
+            if attribute(kAXRoleAttribute, of: node) as String? == "AXWebArea" { return node }
             current = attribute(kAXParentAttribute, of: node)
         }
-        return false
+        return nil
+    }
+
+    private static func url(of webArea: AXUIElement) -> URL? {
+        if let url: URL = attribute(kAXURLAttribute, of: webArea) { return url }
+        let string: String? = attribute(kAXURLAttribute, of: webArea)
+        return string.flatMap(URL.init(string:))
+    }
+
+    /// Начало выделения, а если приложение не отдаёт границы текста — рамка всего поля.
+    private static func anchor(for range: CFRange, in element: AXUIElement) -> CGRect? {
+        var start = CFRange(location: range.location, length: min(range.length, 1))
+        if let rangeValue = AXValueCreate(.cfRange, &start) {
+            var value: CFTypeRef?
+            if AXUIElementCopyParameterizedAttributeValue(
+                element, kAXBoundsForRangeParameterizedAttribute as CFString, rangeValue, &value
+            ) == .success, let value, CFGetTypeID(value) == AXValueGetTypeID() {
+                var rect = CGRect.zero
+                if AXValueGetValue(value as! AXValue, .cgRect, &rect), rect.width > 0 || rect.height > 0 {
+                    return appKitRect(fromAccessibility: rect)
+                }
+            }
+        }
+        return frame(of: element)
+    }
+
+    private static func frame(of element: AXUIElement) -> CGRect? {
+        guard let positionValue: AXValue = attribute(kAXPositionAttribute, of: element),
+              let sizeValue: AXValue = attribute(kAXSizeAttribute, of: element) else { return nil }
+        var origin = CGPoint.zero
+        var size = CGSize.zero
+        guard AXValueGetValue(positionValue, .cgPoint, &origin), AXValueGetValue(sizeValue, .cgSize, &size) else { return nil }
+        return appKitRect(fromAccessibility: CGRect(origin: origin, size: size))
+    }
+
+    /// Accessibility считает Y сверху от главного экрана, AppKit — снизу.
+    private static func appKitRect(fromAccessibility rect: CGRect) -> CGRect {
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
+        return CGRect(x: rect.minX, y: primaryHeight - rect.maxY, width: rect.width, height: rect.height)
     }
 
     private static func selectedRange(of element: AXUIElement) -> CFRange? {

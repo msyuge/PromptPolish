@@ -14,6 +14,10 @@ struct CapturedText {
     let text: String
     let app: NSRunningApplication
     let source: Source
+    /// Адрес страницы, если поле внутри веб-контента.
+    let pageURL: URL?
+    /// Где показать панель превью, в координатах AppKit.
+    let anchor: CGRect?
 }
 
 enum TextBridgeError: LocalizedError, Equatable {

@@ -15,18 +15,23 @@ struct ChatTurn: Equatable, Sendable {
 /// переписывала его, а не отвечала на него.
 struct PromptBuilder: Sendable {
     let systemPrompt: String
+    /// Короткие подсказки, что лучше работает в конкретном чате (ключ — `ChatTarget.rawValue`).
+    let chatStyles: [String: String]
 
-    init(systemPrompt: String) {
+    init(systemPrompt: String, chatStyles: [String: String] = [:]) {
         self.systemPrompt = systemPrompt
+        self.chatStyles = chatStyles
     }
 
-    /// Системный промт из `SystemPrompt.txt` в ресурсах приложения.
+    /// Системный промт из `SystemPrompt.txt` и подсказки из `ChatStyles.json` в ресурсах приложения.
     static func bundled(in bundle: Bundle = .main) throws -> PromptBuilder {
-        guard let url = bundle.url(forResource: "SystemPrompt", withExtension: "txt") else {
+        guard let promptURL = bundle.url(forResource: "SystemPrompt", withExtension: "txt"),
+              let stylesURL = bundle.url(forResource: "ChatStyles", withExtension: "json") else {
             throw LLMError.missingSystemPrompt
         }
-        let text = try String(contentsOf: url, encoding: .utf8)
-        return PromptBuilder(systemPrompt: text.trimmingCharacters(in: .whitespacesAndNewlines))
+        let text = try String(contentsOf: promptURL, encoding: .utf8)
+        let styles = try JSONDecoder().decode([String: String].self, from: Data(contentsOf: stylesURL))
+        return PromptBuilder(systemPrompt: text.trimmingCharacters(in: .whitespacesAndNewlines), chatStyles: styles)
     }
 
     /// `SystemPrompt.txt` копируется в бандл при сборке; его отсутствие — дефект сборки, а не runtime-ошибка.
@@ -38,18 +43,26 @@ struct PromptBuilder: Sendable {
         }
     }
 
-    func messages(for userPrompt: String) -> [ChatTurn] {
+    func messages(for userPrompt: String, target: ChatTarget = .generic) -> [ChatTurn] {
         let prompt = userPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        var header: [String] = []
+        if target != .generic, let style = chatStyles[target.rawValue] {
+            header.append("Target: \(target.displayName)")
+            header.append("Style: \(style)")
+        }
         let language = Self.languageName(of: prompt)
+        header.append("Language: \(language)")
+        // Язык повторяется после промта: маленькая модель лучше всего слушается последней строки.
+        let user = header.joined(separator: "\n") + "\n<prompt>\n\(prompt)\n</prompt>\nWrite the result in \(language)."
         return [
             ChatTurn(role: .system, content: systemPrompt),
-            ChatTurn(role: .user, content: "Language: \(language)\n<prompt>\n\(prompt)\n</prompt>"),
+            ChatTurn(role: .user, content: user),
         ]
     }
 
     /// Маленькая модель сама плохо держит язык ответа, поэтому язык определяется заранее и называется явно.
     static func languageName(of text: String) -> String {
-        let fallback = "the same as the prompt"
+        let fallback = "the same language as the prompt"
         guard let language = detectLanguage(of: text) else { return fallback }
         return Locale(identifier: "en").localizedString(forLanguageCode: language.rawValue) ?? fallback
     }
@@ -121,7 +134,7 @@ enum LLMError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .missingSystemPrompt: "В приложении нет файла SystemPrompt.txt."
+        case .missingSystemPrompt: "В приложении нет SystemPrompt.txt или ChatStyles.json."
         case let .invalidModelID(id): "Некорректный идентификатор модели: \(id)."
         case .emptyOutput: "Модель вернула пустой ответ."
         }

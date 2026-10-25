@@ -17,7 +17,7 @@ final class PromptBuilderTests: XCTestCase {
 
         XCTAssertEqual(messages, [
             ChatTurn(role: .system, content: "SYSTEM"),
-            ChatTurn(role: .user, content: "Language: Russian\n<prompt>\nнапиши пост про кофе\n</prompt>"),
+            ChatTurn(role: .user, content: "Language: Russian\n<prompt>\nнапиши пост про кофе\n</prompt>\nWrite the result in Russian."),
         ])
     }
 
@@ -27,7 +27,36 @@ final class PromptBuilderTests: XCTestCase {
 
         let user = builder.messages(for: prompt)[1].content
 
-        XCTAssertTrue(user.hasSuffix("<prompt>\n\(prompt)\n</prompt>"))
+        XCTAssertTrue(user.contains("<prompt>\n\(prompt)\n</prompt>"))
+    }
+
+    func testEveryChatHasBundledStyle() throws {
+        let builder = try PromptBuilder.bundled()
+
+        for target in ChatTarget.allCases where target != .generic {
+            XCTAssertFalse(builder.chatStyles[target.rawValue, default: ""].isEmpty, "Нет подсказки для \(target)")
+        }
+        XCTAssertTrue(builder.systemPrompt.contains("\"Style\""))
+    }
+
+    func testTargetAddsChatStyleBeforePrompt() {
+        let builder = PromptBuilder(systemPrompt: "SYSTEM", chatStyles: ["claude": "Use XML tags."])
+
+        let user = builder.messages(for: "напиши пост про кофе", target: .claude)[1].content
+
+        XCTAssertEqual(
+            user,
+            "Target: Claude\nStyle: Use XML tags.\nLanguage: Russian\n<prompt>\nнапиши пост про кофе\n</prompt>\nWrite the result in Russian."
+        )
+    }
+
+    func testGenericTargetHasNoStyleLines() {
+        let builder = PromptBuilder(systemPrompt: "SYSTEM", chatStyles: ["claude": "Use XML tags."])
+
+        let user = builder.messages(for: "fix my sql", target: .generic)[1].content
+
+        XCTAssertFalse(user.contains("Target:"))
+        XCTAssertFalse(user.contains("Style:"))
     }
 
     func testLanguageIsNamedExplicitly() {
