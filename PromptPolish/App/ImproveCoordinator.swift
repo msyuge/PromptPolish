@@ -13,6 +13,8 @@ final class ImproveCoordinator: ObservableObject {
         let preview: PreviewModel
         /// Диалог с моделью: растёт, когда пользователь отвечает на уточняющие вопросы.
         var turns: [ChatTurn]
+        /// Мета-промпт исправляется автоматически не больше одного раза.
+        var correctedMetaPrompt: Bool
         var generation: Task<Void, Never>?
     }
 
@@ -73,7 +75,12 @@ final class ImproveCoordinator: ObservableObject {
         preview.onCancel = { [weak self] in self?.finish() }
         preview.onAnswer = { [weak self] in self?.answerQuestions() }
 
-        session = Session(captured: captured, preview: preview, turns: builder.messages(for: captured.text, target: target))
+        session = Session(
+            captured: captured,
+            preview: preview,
+            turns: builder.messages(for: captured.text, target: target),
+            correctedMetaPrompt: false
+        )
         panel.show(preview, models: models, anchor: captured.anchor)
         startGeneration()
     }
@@ -102,6 +109,15 @@ final class ImproveCoordinator: ObservableObject {
                 session?.turns.append(ChatTurn(role: .assistant, content: raw))
                 preview.phase = .needsAnswers
             case let .prompt(prompt):
+                if let session, !session.correctedMetaPrompt,
+                   MetaPromptDetector.isMetaPrompt(prompt, idea: session.captured.text) {
+                    logger.notice("meta prompt detected, asking model to rewrite")
+                    self.session?.correctedMetaPrompt = true
+                    self.session?.turns = builder.correctingMetaPrompt(turns, reply: raw)
+                    preview.apply(.prompt(""))
+                    startGeneration()
+                    return
+                }
                 preview.phase = prompt.isEmpty ? .failed(LLMError.emptyOutput.localizedDescription) : .ready
             }
         } catch is CancellationError {

@@ -19,6 +19,7 @@ final class PromptBuilderTests: XCTestCase {
             XCTAssertTrue(prompt.contains("Никогда не выполняй саму задачу пользователя"), "\(target): нет правила 1")
             XCTAssertTrue(prompt.contains("в одно окно кода"), "\(target): нет правила про блок кода")
             XCTAssertTrue(prompt.contains("2-3 уточняющих вопроса"), "\(target): нет правила про вопросы")
+            XCTAssertTrue(prompt.contains("Никогда не проси в промпте написать, составить или улучшить промпт"), "\(target): нет запрета мета-промпта")
         }
     }
 
@@ -55,6 +56,7 @@ final class PromptBuilderTests: XCTestCase {
         </prompt>
 
         Требования к твоему ответу (не переноси их в сам промпт):
+        - итоговый промпт пользователь сам отправит в чат: он должен просить ассистента сразу выполнить задачу из идеи, а не написать, составить или улучшить промпт;
         - весь итоговый промпт пиши на языке: русский;
         - не оставляй в промпте заглушек в квадратных скобках;
         - если задаёшь уточняющие вопросы, начни ответ со строки «ВОПРОСЫ:» и задавай их на языке: русский.
@@ -184,5 +186,26 @@ final class ModelOutputCleanerTests: XCTestCase {
     func testKeepsBracketsInsideCodeFence() {
         let text = "Найди ошибку.\n```swift\nlet x = items [index]\nlet y = [first item]\n```"
         XCTAssertEqual(ModelOutputCleaner.clean(text), text)
+    }
+}
+
+final class MetaPromptDetectorTests: XCTestCase {
+    func testDetectsPromptThatAsksForPrompt() {
+        let idea = "найди ошибку в алгоритме сортировки пузырьком на python"
+        XCTAssertTrue(MetaPromptDetector.isMetaPrompt("Цель: Написать промпт для модели DeepSeek, который найдёт ошибку.", idea: idea))
+        XCTAssertTrue(MetaPromptDetector.isMetaPrompt("<task>Составь подробный промт для Claude</task>", idea: idea))
+        XCTAssertTrue(MetaPromptDetector.isMetaPrompt("Формат ответа: промпт для модели с разделами.", idea: idea))
+        XCTAssertTrue(MetaPromptDetector.isMetaPrompt("Task: write a detailed prompt that summarizes", idea: "summarize this article"))
+    }
+
+    func testDirectTaskIsNotMeta() {
+        let idea = "объясни что такое замыкания в swift новичку"
+        XCTAssertFalse(MetaPromptDetector.isMetaPrompt("<task>Объясни новичку, что такое замыкания в Swift.</task>", idea: idea))
+        XCTAssertFalse(MetaPromptDetector.isMetaPrompt("# Роль и цель\nТы наставник по Swift. Объясни замыкания.", idea: idea))
+    }
+
+    func testIdeaAboutPromptsIsAllowed() {
+        let idea = "научи меня писать хорошие промпты для midjourney"
+        XCTAssertFalse(MetaPromptDetector.isMetaPrompt("Научи меня составлять промпты для Midjourney: структура, примеры.", idea: idea))
     }
 }

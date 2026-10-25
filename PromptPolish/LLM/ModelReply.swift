@@ -60,6 +60,25 @@ enum ModelReply: Equatable {
     }
 }
 
+/// Мета-промпт — результат, который просит чат написать промпт вместо того, чтобы поставить ему саму задачу.
+enum MetaPromptDetector {
+    private static let pattern = try! NSRegularExpression(
+        pattern: #"(напиши|написать|составь|составить|создай|создать|сгенерируй|сгенерировать|разработай|разработать|сформулируй|сформулировать|подготовь|подготовить|улучши|улучшить|перепиши|переписать)\s+(\S+\s+){0,3}пр[оа]мп?т|пр[оа]мп?т\s+для\s+(модели|нейросети|ии|ai|chatgpt|claude|gemini|deepseek|perplexity|grok|copilot|le chat)|(write|create|generate|craft|design|improve)\s+(\S+\s+){0,3}prompt|prompt\s+for\s+(the\s+)?(model|ai|llm|chatgpt|claude|gemini)"#,
+        options: [.caseInsensitive]
+    )
+    private static let promptWord = try! NSRegularExpression(pattern: #"пр[оа]мп?т|prompt"#, options: [.caseInsensitive])
+
+    /// Если идея пользователя сама про промпты, упоминание промптов в результате законно.
+    static func isMetaPrompt(_ text: String, idea: String) -> Bool {
+        guard !matches(promptWord, idea) else { return false }
+        return matches(pattern, text)
+    }
+
+    private static func matches(_ regex: NSRegularExpression, _ text: String) -> Bool {
+        regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
+    }
+}
+
 /// Убирает обёртки, которые маленькие модели добавляют к промту, и запрещённые заглушки.
 enum ModelOutputCleaner {
     private static let labelPrefixes = [

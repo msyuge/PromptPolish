@@ -47,19 +47,29 @@ final class LLMIntegrationTests: XCTestCase {
         try await engine.prepare()
         var report = "Модель: \(engine.spec.id)\nЗагрузка: \(ContinuousClock.now - loadStart)\n"
 
+        // Повторяет сценарий ImproveCoordinator: вопросы → ответы → одна автокоррекция мета-промпта.
         for (idea, target) in Self.samples {
             var turns = builder.messages(for: idea, target: target)
-            let first = try await run(engine, turns)
+            var last = try await run(engine, turns)
             report += "\n=== [\(target.rawValue)] \(idea)\n"
-            report += describe(first)
+            report += describe(last)
+            XCTAssertGreaterThan(last.chunks, 1, "Ожидался стриминг несколькими кусками")
 
-            if case .questions = first.reply {
-                turns = builder.followUp(turns, questions: first.raw, answers: Self.answers[idea] ?? "Сам реши, что разумно, и сразу напиши промпт.")
-                let second = try await run(engine, turns)
-                report += "--- после ответов:\n" + describe(second)
-                XCTAssertEqual(second.reply.isPrompt, true, "После ответов модель снова спросила: \(idea)")
+            if case .questions = last.reply {
+                turns = builder.followUp(turns, questions: last.raw, answers: Self.answers[idea] ?? "Сам реши, что разумно, и сразу напиши промпт.")
+                last = try await run(engine, turns)
+                report += "--- после ответов:\n" + describe(last)
+                XCTAssertEqual(last.reply.isPrompt, true, "После ответов модель снова спросила: \(idea)")
             }
-            XCTAssertGreaterThan(first.chunks, 1, "Ожидался стриминг несколькими кусками")
+            if case let .prompt(text) = last.reply, MetaPromptDetector.isMetaPrompt(text, idea: idea) {
+                report += "--- мета-промпт, автокоррекция:\n"
+                turns = builder.correctingMetaPrompt(turns, reply: last.raw)
+                last = try await run(engine, turns)
+                report += describe(last)
+            }
+            if case let .prompt(text) = last.reply {
+                XCTAssertFalse(MetaPromptDetector.isMetaPrompt(text, idea: idea), "Мета-промпт для «\(idea)» [\(target.rawValue)]")
+            }
         }
 
         let output = URL(fileURLWithPath: #filePath)

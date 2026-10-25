@@ -123,20 +123,16 @@ private struct StreamingText: View {
     let isPlaceholder: Bool
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                Text(text)
-                    .font(isPlaceholder ? .body : .body.monospaced())
-                    .foregroundStyle(isPlaceholder ? .secondary : .primary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
-                    .padding(10)
-                Color.clear.frame(height: 1).id("end")
-            }
-            .background(.background.opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
-            .onChange(of: text) {
-                proxy.scrollTo("end", anchor: .bottom)
-            }
+        // Якорь снизу держит конец текста в поле зрения без scrollTo на каждый кусок стрима.
+        ScrollView {
+            Text(text)
+                .font(isPlaceholder ? .body : .body.monospaced())
+                .foregroundStyle(isPlaceholder ? .secondary : .primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+                .padding(10)
         }
+        .defaultScrollAnchor(.bottom)
+        .background(.background.opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
     }
 }
