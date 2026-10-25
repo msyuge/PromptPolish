@@ -24,7 +24,7 @@ final class ModelStore: ObservableObject {
 
     private let locator: ModelLocator
     private let defaults: UserDefaults
-    private let logger = Logger(subsystem: "local.promptpolish", category: "models")
+    private let logger = Logger(subsystem: "com.alekseimaksimov.promptpolish", category: "models")
     private let physicalMemory = ProcessInfo.processInfo.physicalMemory
 
     init(locator: ModelLocator = .standard, defaults: UserDefaults = .standard) {
@@ -94,10 +94,12 @@ final class ModelStore: ObservableObject {
                 // Пока модель грузилась, пользователь мог выбрать другую — её состояние не трогаем.
                 guard engine === self.engine else { return }
                 state = .ready
+                logger.notice("model ready: \(self.current.id, privacy: .public)")
                 if wasDownload { refreshCatalog() }
             } catch {
                 guard engine === self.engine else { return }
                 state = .failed(error.localizedDescription)
+                logger.error("model failed: \(error.localizedDescription, privacy: .public)")
             }
         }
     }

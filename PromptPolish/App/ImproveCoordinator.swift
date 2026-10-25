@@ -25,7 +25,7 @@ final class ImproveCoordinator: ObservableObject {
 
     private let textBridge: TextBridge
     private let panel = PreviewPanelController()
-    private let logger = Logger(subsystem: "local.promptpolish", category: "coordinator")
+    private let logger = Logger(subsystem: "com.alekseimaksimov.promptpolish", category: "coordinator")
     private var isCapturing = false
     private var session: Session?
 

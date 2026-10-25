@@ -8,7 +8,8 @@
 - macOS 14+, только Apple Silicon (arm64), Swift 5 language mode со `SWIFT_STRICT_CONCURRENCY=complete`.
 - Без App Sandbox и без Hardened Runtime: нужен Accessibility (AXUIElement) и синтетические нажатия клавиш.
 - `LSUIElement = YES` (нет иконки в Dock), UI — `MenuBarExtra`.
-- Подпись: `Apple Development` (team 6ALXRXJXN6), Manual. Стабильная подпись нужна, чтобы разрешение Accessibility не сбрасывалось после каждой пересборки.
+- Подпись: Debug — `Apple Development`, Release — `Developer ID Application` (team 6ALXRXJXN6), Manual, Hardened Runtime включён (entitlements не нужны). Bundle ID `com.alekseimaksimov.promptpolish`, версия 1.0.0. Стабильная подпись нужна, чтобы разрешение Accessibility не сбрасывалось после каждой пересборки.
+- Распространение: DMG с Developer ID и нотаризацией (`make release`, `scripts/release.sh`, профиль notarytool `PromptPolish` в связке ключей создаёт пользователь). Mac App Store невозможен — нужен App Sandbox, а с ним нет Accessibility. Лицензии пакетов — `Resources/Acknowledgements.txt` (`scripts/make-acknowledgements.sh`), иконка — `scripts/make-icon.swift`.
 - Проект генерируется XcodeGen из `project.yml`; `*.xcodeproj` в git не хранится.
 - Инференс не блокирует main thread (actors, async/await).
 - Пользовательский буфер обмена всегда восстанавливается (все типы, все элементы), в том числе при ошибках.
@@ -26,6 +27,9 @@ make test       # unit-тесты (без интеграционных)
 make integration # реальная генерация на модели, отчёт в build/integration-output.txt
 make run        # сборка, перезапуск приложения (Debug)
 make install    # Release в ~/Applications и запуск
+make dmg        # подписанный DMG без нотаризации
+make release    # DMG с Developer ID и нотаризацией (build/release)
+make icon       # пересоздать иконку
 make clean
 ```
 
@@ -45,7 +49,7 @@ make clean
 - Для сборки MLX нужен Metal Toolchain: `xcodebuild -downloadComponent MetalToolchain` (уже установлен на этой машине).
 - Первая сборка с MLX долгая (компиляция mlx и шейдеров) — запускать в фоне.
 
-- Логи: `/usr/bin/log show --last 30m --predicate 'subsystem == "local.promptpolish"' --info` — в zsh `log` перекрыт встроенной командой, нужен полный путь.
+- Логи: `/usr/bin/log show --last 30m --predicate 'subsystem == "com.alekseimaksimov.promptpolish"' --info` — в zsh `log` перекрыт встроенной командой, нужен полный путь.
 
 ## Документация
 - `README.md` — установка, разрешения, использование, известные ограничения.

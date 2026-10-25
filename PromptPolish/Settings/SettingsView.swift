@@ -112,6 +112,11 @@ struct SettingsView: View {
 
             Section {
                 LabeledContent("Версия", value: Bundle.main.shortVersion)
+                if let acknowledgements = Bundle.main.url(forResource: "Acknowledgements", withExtension: "txt") {
+                    LabeledContent("Сторонние компоненты") {
+                        Button("Лицензии") { NSWorkspace.shared.open(acknowledgements) }
+                    }
+                }
             }
         }
         .formStyle(.grouped)

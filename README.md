@@ -33,6 +33,15 @@
 
 ## Установка
 
+1. Скачайте `PromptPolish-1.0.0.dmg`, откройте его и перетащите **PromptPolish** в папку **Программы**.
+2. Запустите PromptPolish из Программ: в строке меню появится значок волшебной палочки. Приложение подписано Developer ID и нотаризовано Apple, поэтому Gatekeeper не показывает предупреждений.
+3. Выдайте разрешение Accessibility (см. ниже).
+4. При первом запуске утилита ищет модель на диске, а если не находит — скачивает Qwen3.5 4B (≈3 ГБ). Прогресс виден в меню.
+
+Если раньше стояла сборка из исходников, удалите `~/Applications/PromptPolish.app`. У релиза другие подпись и идентификатор (`com.alekseimaksimov.promptpolish`), поэтому Accessibility для него нужно выдать заново.
+
+### Сборка из исходников
+
 ```bash
 brew install xcodegen
 ```
@@ -47,7 +56,7 @@ make install
 
 `make install` собирает Release-версию, копирует её в `~/Applications/PromptPolish.app` и запускает. Первая сборка идёт несколько минут: компилируется MLX вместе с Metal-шейдерами.
 
-Проект подписывается сертификатом **Apple Development** команды `6ALXRXJXN6` (`project.yml`, `DEVELOPMENT_TEAM`). Если собираете под другой учётной записью, поменяйте команду на свою. Подпись должна оставаться одной и той же от сборки к сборке, иначе macOS будет сбрасывать разрешение Accessibility после каждой пересборки.
+Debug-сборки подписываются сертификатом **Apple Development**, Release — **Developer ID Application** (команда `6ALXRXJXN6`, `project.yml`). Если собираете под другой учётной записью, поменяйте `DEVELOPMENT_TEAM` и `scripts/ExportOptions.plist`. Подпись должна оставаться одной и той же от сборки к сборке, иначе macOS будет сбрасывать разрешение Accessibility после каждой пересборки.
 
 ### Модель
 
@@ -118,6 +127,40 @@ App Sandbox отключён: с ним Accessibility недоступен. Ут
 - **Неизвестные чаты** получают общую инструкцию без адаптации под чат.
 - **Панель** ставится под выделенным текстом. Если приложение не сообщает положение каретки, панель встаёт у поля ввода или у курсора мыши.
 
+## Распространение
+
+Mac App Store не подходит: там обязателен App Sandbox, а с ним Accessibility недоступен. Поэтому PromptPolish распространяется как DMG, подписанный **Developer ID** и нотаризованный Apple.
+
+Один раз создайте в связке ключей профиль для нотаризации. Понадобятся Apple ID и [пароль приложения](https://account.apple.com/account/manage) (Вход и безопасность → Пароли приложений); команда спросит пароль сама:
+
+```bash
+xcrun notarytool store-credentials PromptPolish --apple-id ВАШ_APPLE_ID --team-id 6ALXRXJXN6
+```
+
+Затем:
+
+```bash
+make release
+```
+
+`make release` (`scripts/release.sh`) делает всё по порядку:
+
+1. обновляет версию из `project.yml` и файл лицензий сторонних компонентов;
+2. собирает архив Release и экспортирует его с подписью Developer ID и Hardened Runtime;
+3. отправляет приложение на нотаризацию и прикрепляет к нему тикет (stapling);
+4. собирает `build/release/PromptPolish-<версия>.dmg` с ярлыком на «Программы», подписывает, нотаризует и тоже прикрепляет тикет;
+5. проверяет результат через Gatekeeper (`spctl`) и записывает SHA-256 рядом с DMG.
+
+`make dmg` собирает подписанный DMG без нотаризации — чтобы проверить сборку, не отправляя её в Apple.
+
+Новая версия: поменяйте `CFBundleShortVersionString` и увеличьте `CFBundleVersion` в `project.yml`, затем `make release`.
+
+## Лицензии
+
+Тексты лицензий сторонних компонентов собраны в `PromptPolish/Resources/Acknowledgements.txt` (обновляется `scripts/make-acknowledgements.sh` при каждом релизе) и открываются из **Настроек → Лицензии**. Основные компоненты: [mlx-swift](https://github.com/ml-explore/mlx-swift) и [mlx-swift-lm](https://github.com/ml-explore/mlx-swift-lm) (MIT), [swift-transformers](https://github.com/huggingface/swift-transformers) и [swift-huggingface](https://github.com/huggingface/swift-huggingface) (Apache-2.0), [KeyboardShortcuts](https://github.com/sindresorhus/KeyboardShortcuts) (MIT).
+
+Модели в приложение не входят: их скачивает пользователь, и действуют лицензии самих моделей — Qwen3.5 распространяется под Apache-2.0, Gemma 4 — по [условиям Gemma](https://ai.google.dev/gemma/terms).
+
 ## Разработка
 
 | Команда | Что делает |
@@ -127,11 +170,14 @@ App Sandbox отключён: с ним Accessibility недоступен. Ут
 | `make test` | unit-тесты (буфер обмена, разбор ответа модели, определение чата, поиск модели, размещение панели) |
 | `make integration` | реальная генерация на модели по всем чатам, отчёт в `build/integration-output.txt` |
 | `make install` | Release в `~/Applications` |
+| `make dmg` | подписанный DMG без нотаризации |
+| `make release` | DMG с подписью Developer ID и нотаризацией |
+| `make icon` | пересоздать иконку (`scripts/make-icon.swift`) |
 
 Логи (текст промтов в них не пишется):
 
 ```bash
-/usr/bin/log show --last 30m --info --predicate 'subsystem == "local.promptpolish"'
+/usr/bin/log show --last 30m --info --predicate 'subsystem == "com.alekseimaksimov.promptpolish"'
 ```
 
 Архитектура и принятые решения описаны в [CLAUDE.md](CLAUDE.md), план следующей фазы — в [docs/phase2.md](docs/phase2.md).

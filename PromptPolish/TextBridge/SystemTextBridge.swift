@@ -7,7 +7,7 @@ import os
 @MainActor
 final class SystemTextBridge: TextBridge {
     private let clipboard: ClipboardTextTransfer
-    private let logger = Logger(subsystem: "local.promptpolish", category: "textbridge")
+    private let logger = Logger(subsystem: "com.alekseimaksimov.promptpolish", category: "textbridge")
 
     init(clipboard: ClipboardTextTransfer = ClipboardTextTransfer()) {
         self.clipboard = clipboard

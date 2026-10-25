@@ -8,7 +8,7 @@ extension NSPasteboard {
 }
 
 extension NSPasteboard.PasteboardType {
-    static let custom = NSPasteboard.PasteboardType("local.promptpolish.tests.custom")
+    static let custom = NSPasteboard.PasteboardType("com.alekseimaksimov.promptpolish.tests.custom")
 }
 
 /// Заполняет буфер «пользовательскими» данными: два элемента, у первого три типа.

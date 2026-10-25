@@ -4,7 +4,7 @@ DERIVED := build/DerivedData
 APP     := $(DERIVED)/Build/Products/Debug/PromptPolish.app
 XCB     := xcodebuild -project $(PROJECT) -scheme $(SCHEME) -destination 'platform=macOS,arch=arm64' -derivedDataPath $(DERIVED)
 
-.PHONY: generate build test integration run install clean
+.PHONY: generate build test integration run install dmg release icon clean
 
 generate:
 	xcodegen generate --quiet
@@ -32,6 +32,18 @@ install: generate
 	rm -rf $(HOME)/Applications/PromptPolish.app
 	cp -R $(DERIVED)/Build/Products/Release/PromptPolish.app $(HOME)/Applications/
 	open $(HOME)/Applications/PromptPolish.app
+
+# Подписанный Developer ID DMG без нотаризации — для проверки сборки.
+dmg:
+	SKIP_NOTARIZE=1 scripts/release.sh
+
+# Полный релиз: Developer ID, нотаризация и stapling приложения и DMG. Результат в build/release.
+release:
+	scripts/release.sh
+
+# Пересоздать иконку приложения в Assets.xcassets.
+icon:
+	swift scripts/make-icon.swift
 
 clean:
 	rm -rf build $(PROJECT)
