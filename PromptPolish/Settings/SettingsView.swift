@@ -23,8 +23,29 @@ struct SettingsView: View {
             }
 
             Section("Модель") {
-                LabeledContent("Модель", value: models.spec.displayName)
-                LabeledContent("Размер", value: models.spec.approximateSize)
+                Picker("Модель", selection: Binding(
+                    get: { models.current.id },
+                    set: { id in
+                        if let choice = (models.installed + models.downloads).first(where: { $0.id == id }) {
+                            models.select(choice)
+                        }
+                    }
+                )) {
+                    if !models.installed.isEmpty {
+                        Section("На диске") {
+                            ForEach(models.installed) { choice in
+                                Text("\(choice.name) — \(choice.sourceLabel)").tag(choice.id)
+                            }
+                        }
+                    }
+                    if !models.downloads.isEmpty {
+                        Section("Скачать") {
+                            ForEach(models.downloads) { choice in
+                                Text("\(choice.name) — \(choice.sizeLabel)").tag(choice.id)
+                            }
+                        }
+                    }
+                }
                 LabeledContent("Состояние") {
                     switch models.state {
                     case let .downloading(fraction):
@@ -46,15 +67,23 @@ struct SettingsView: View {
                         .foregroundStyle(.red)
                         .textSelection(.enabled)
                 }
-                if let location = models.location {
-                    Text(location.description)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
-                Text("Сначала ищу модель в LM Studio и кэше Hugging Face; скачиваю, только если её нет на диске.")
+                Text(models.current.locationDescription)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                if !models.fitsMemory(models.current) {
+                    Text("Этой модели может не хватить оперативной памяти: возможны своп и замедление.")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+                HStack {
+                    Text("Ищу MLX-модели в LM Studio и кэше Hugging Face. Модели Ollama (GGUF) не поддерживаются.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Обновить") { models.refreshCatalog() }
+                        .controlSize(.small)
+                }
             }
 
             Section {

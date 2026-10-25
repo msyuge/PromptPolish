@@ -26,6 +26,7 @@ struct MenuContent: View {
 
         Divider()
 
+        ModelMenu(models: models)
         Text(models.state.statusText)
         if case .failed = models.state {
             Button("Повторить загрузку модели") { models.prepare() }

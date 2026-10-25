@@ -6,7 +6,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Unit-тесты хостятся в приложении: там не нужны ни хоткей, ни загрузка модели.
-        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
+        // Переменная окружения XCTest в новых Xcode не выставляется, поэтому проверяется сам фреймворк.
+        guard NSClassFromString("XCTestCase") == nil else { return }
         coordinator.start()
     }
 }

@@ -4,37 +4,37 @@ import MLXLMCommon
 
 /// Модель и параметры генерации.
 struct ModelSpec: Sendable {
-    /// Репозиторий, из которого модель скачивается, если её нет на диске.
+    /// Репозиторий Hugging Face, из которого модель скачивается, если её нет на диске.
     let id: String
-    /// Другие репозитории с теми же весами — их копия на диске тоже подходит.
-    let aliases: [String]
     let displayName: String
-    let approximateSize: String
+    /// Папка с уже скачанной моделью (LM Studio или кэш Hugging Face).
+    let directory: URL?
     let extraEOSTokens: Set<String>
-    /// Параметры шаблона чата (например, отключение режима рассуждений у Qwen3.5).
+    /// Параметры шаблона чата: рассуждения Qwen3/3.5 отключены, для переписывания промта они только замедляют ответ.
+    /// Шаблоны других моделей лишний параметр игнорируют.
     let templateContext: [String: Bool]
     let parameters: GenerateParameters
 
-    /// Qwen3.5 4B (март 2026): ≈3 ГБ весов — помещается на Mac с 8 ГБ памяти вместе с браузером.
-    /// Рассуждения отключены: для переписывания промта они только замедляют ответ.
-    static let qwen35_4B = ModelSpec(
-        id: "mlx-community/Qwen3.5-4B-MLX-4bit",
-        aliases: ["mlx-community/Qwen3.5-4B-4bit"],
-        displayName: "Qwen3.5 4B (4-bit)",
-        approximateSize: "≈3 ГБ",
-        extraEOSTokens: ["<|im_end|>"],
-        templateContext: ["enable_thinking": false],
-        parameters: GenerateParameters(maxTokens: 1500, temperature: 0.7, topP: 0.8, topK: 20)
-    )
+    init(for choice: ModelChoice) {
+        id = choice.id
+        displayName = choice.name
+        directory = choice.directory
+        extraEOSTokens = Self.endOfTurnTokens(modelType: choice.modelType)
+        templateContext = ["enable_thinking": false]
+        parameters = GenerateParameters(maxTokens: 1500, temperature: 0.7, topP: 0.8, topK: 20)
+    }
 
-    static let `default` = qwen35_4B
-    static let all: [ModelSpec] = [.qwen35_4B]
+    /// Токены конца реплики, которых может не быть среди EOS в конфиге модели.
+    static func endOfTurnTokens(modelType: String?) -> Set<String> {
+        guard let modelType else { return [] }
+        if modelType.hasPrefix("qwen") { return ["<|im_end|>"] }
+        if modelType.hasPrefix("gemma4") { return ["<turn|>"] }
+        if modelType.hasPrefix("gemma") { return ["<end_of_turn>"] }
+        return []
+    }
 
-    var repoIDs: [String] { [id] + aliases }
-
-    /// Конфигурация загрузки: локальная папка, если модель уже есть на диске, иначе — скачивание.
-    func configuration(for location: ModelLocator.Location) -> ModelConfiguration {
-        if let directory = location.directory {
+    var configuration: ModelConfiguration {
+        if let directory {
             return ModelConfiguration(directory: directory, extraEOSTokens: extraEOSTokens)
         }
         return ModelConfiguration(id: id, extraEOSTokens: extraEOSTokens)
@@ -45,23 +45,20 @@ struct ModelSpec: Sendable {
 /// ждут одну и ту же загрузку. Вся работа идёт вне main thread.
 actor LLMEngine {
     enum LoadEvent: Sendable {
-        case located(ModelLocator.Location)
         case downloading(fraction: Double)
         case loading
     }
 
     nonisolated let spec: ModelSpec
-    private let locator: ModelLocator
 
     private var container: ModelContainer?
     private var loadTask: Task<ModelContainer, Error>?
 
-    init(spec: ModelSpec = .default, locator: ModelLocator = .standard) {
+    init(spec: ModelSpec) {
         self.spec = spec
-        self.locator = locator
     }
 
-    /// Находит модель на диске (LM Studio, кэш Hugging Face) или скачивает её и загружает в память.
+    /// Загружает модель из её папки или сначала скачивает с Hugging Face.
     func prepare(onEvent: @escaping @Sendable (LoadEvent) -> Void = { _ in }) async throws {
         _ = try await loadedContainer(onEvent: onEvent)
     }
@@ -106,9 +103,7 @@ actor LLMEngine {
         if let container { return container }
         if let loadTask { return try await loadTask.value }
 
-        let location = locator.locate(repoIDs: spec.repoIDs)
-        onEvent(.located(location))
-        let configuration = spec.configuration(for: location)
+        let configuration = spec.configuration
         let task = Task<ModelContainer, Error> {
             let container = try await LLMModelFactory.shared.loadContainer(
                 from: HubSnapshotDownloader(),

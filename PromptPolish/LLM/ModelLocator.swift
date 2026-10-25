@@ -1,30 +1,23 @@
 import Foundation
 
-/// Ищет уже скачанную модель, чтобы не держать на диске вторую копию:
-/// сначала в папках LM Studio, затем в кэше Hugging Face. Если не нашлось — модель скачивается.
-struct ModelLocator: Sendable {
-    enum Location: Equatable, Sendable {
-        case lmStudio(URL)
-        case huggingFaceCache(URL)
-        /// Модели нет на диске — её скачает `HubSnapshotDownloader`.
-        case download
-
-        var directory: URL? {
-            switch self {
-            case let .lmStudio(url), let .huggingFaceCache(url): url
-            case .download: nil
-            }
-        }
-
-        var description: String {
-            switch self {
-            case let .lmStudio(url): "LM Studio: \(url.path(percentEncoded: false))"
-            case let .huggingFaceCache(url): "Кэш Hugging Face: \(url.path(percentEncoded: false))"
-            case .download: "Будет скачана с Hugging Face"
-            }
-        }
+/// MLX-модель, уже лежащая на диске.
+struct LocalModel: Equatable, Sendable {
+    enum Source: Equatable, Sendable {
+        case lmStudio
+        case huggingFaceCache
     }
 
+    /// Имя репозитория вида `mlx-community/Qwen3.5-4B-MLX-4bit`.
+    let repoID: String
+    let directory: URL
+    let source: Source
+    let sizeBytes: Int64
+    let modelType: String?
+}
+
+/// Находит готовые MLX-модели в папках LM Studio и в кэше Hugging Face,
+/// чтобы не держать на диске вторую копию. GGUF-модели (Ollama, llama.cpp) не подходят и пропускаются.
+struct ModelLocator: Sendable {
     let lmStudioRoots: [URL]
     let huggingFaceHub: URL
 
@@ -39,43 +32,72 @@ struct ModelLocator: Sendable {
         )
     }()
 
-    /// `repoIDs` — одинаковые веса могут лежать под разными именами репозиториев.
-    func locate(repoIDs: [String]) -> Location {
-        for root in lmStudioRoots {
-            for id in repoIDs {
-                let directory = root.appending(path: id)
-                if Self.isComplete(directory) { return .lmStudio(directory) }
+    func scan() -> [LocalModel] {
+        scanLMStudio() + scanHuggingFaceCache()
+    }
+
+    /// LM Studio хранит модели как `<root>/<publisher>/<model>`.
+    private func scanLMStudio() -> [LocalModel] {
+        lmStudioRoots.flatMap { root in
+            subdirectories(of: root).flatMap { publisher in
+                subdirectories(of: publisher).compactMap { directory in
+                    model(at: directory, repoID: "\(publisher.lastPathComponent)/\(directory.lastPathComponent)", source: .lmStudio)
+                }
             }
         }
-        for id in repoIDs {
-            if let snapshot = huggingFaceSnapshot(for: id) { return .huggingFaceCache(snapshot) }
+    }
+
+    /// Кэш Hugging Face: `models--org--name/snapshots/<commit из refs/main>`.
+    private func scanHuggingFaceCache() -> [LocalModel] {
+        subdirectories(of: huggingFaceHub).compactMap { repo in
+            let name = repo.lastPathComponent
+            guard name.hasPrefix("models--") else { return nil }
+            let parts = name.dropFirst("models--".count).components(separatedBy: "--")
+            guard parts.count == 2,
+                  let commit = try? String(contentsOf: repo.appending(path: "refs/main"), encoding: .utf8)
+                      .trimmingCharacters(in: .whitespacesAndNewlines), !commit.isEmpty else { return nil }
+            return model(at: repo.appending(path: "snapshots/\(commit)"), repoID: parts.joined(separator: "/"), source: .huggingFaceCache)
         }
-        return .download
     }
 
-    /// Снимок в кэше Hugging Face: `models--org--name/snapshots/<commit из refs/main>`.
-    private func huggingFaceSnapshot(for id: String) -> URL? {
-        let repo = huggingFaceHub.appending(path: "models--" + id.replacingOccurrences(of: "/", with: "--"))
-        guard let commit = try? String(contentsOf: repo.appending(path: "refs/main"), encoding: .utf8)
-            .trimmingCharacters(in: .whitespacesAndNewlines), !commit.isEmpty else { return nil }
-        let snapshot = repo.appending(path: "snapshots/\(commit)")
-        return Self.isComplete(snapshot) ? snapshot : nil
+    private func model(at directory: URL, repoID: String, source: LocalModel.Source) -> LocalModel? {
+        guard let weights = Self.weightFiles(in: directory) else { return nil }
+        let size = weights.reduce(Int64(0)) { total, name in
+            let path = directory.appending(path: name).path(percentEncoded: false)
+            let attributes = try? FileManager.default.attributesOfItem(atPath: path)
+            return total + ((attributes?[.size] as? NSNumber)?.int64Value ?? 0)
+        }
+        return LocalModel(repoID: repoID, directory: directory, source: source, sizeBytes: size, modelType: Self.modelType(in: directory))
     }
 
-    /// Папка пригодна для загрузки, если в ней есть конфиг, токенизатор и все файлы весов из индекса.
-    static func isComplete(_ directory: URL) -> Bool {
+    /// Файлы весов, если папка пригодна для MLX: есть конфиг, токенизатор и все safetensors из индекса.
+    static func weightFiles(in directory: URL) -> [String]? {
         let fileManager = FileManager.default
         func exists(_ name: String) -> Bool {
             fileManager.fileExists(atPath: directory.appending(path: name).path(percentEncoded: false))
         }
-        guard exists("config.json"), exists("tokenizer.json") else { return false }
+        guard exists("config.json"), exists("tokenizer.json") else { return nil }
 
         let index = directory.appending(path: "model.safetensors.index.json")
         if let data = try? Data(contentsOf: index),
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let weightMap = json["weight_map"] as? [String: String] {
-            return Set(weightMap.values).allSatisfy(exists)
+            let files = Array(Set(weightMap.values)).sorted()
+            return files.allSatisfy(exists) ? files : nil
         }
-        return exists("model.safetensors")
+        return exists("model.safetensors") ? ["model.safetensors"] : nil
+    }
+
+    private static func modelType(in directory: URL) -> String? {
+        guard let data = try? Data(contentsOf: directory.appending(path: "config.json")),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        return json["model_type"] as? String
+    }
+
+    private func subdirectories(of url: URL) -> [URL] {
+        let contents = (try? FileManager.default.contentsOfDirectory(
+            at: url, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]
+        )) ?? []
+        return contents.filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
     }
 }

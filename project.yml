@@ -8,6 +8,9 @@ packages:
   KeyboardShortcuts:
     url: https://github.com/sindresorhus/KeyboardShortcuts
     from: 3.1.0
+  MLXSwift:
+    url: https://github.com/ml-explore/mlx-swift
+    from: 0.32.3
   MLXSwiftLM:
     url: https://github.com/ml-explore/mlx-swift-lm
     from: 3.32.3
@@ -34,6 +37,8 @@ targets:
       - PromptPolish
     dependencies:
       - package: KeyboardShortcuts
+      - package: MLXSwift
+        product: MLX
       - package: MLXSwiftLM
         product: MLXLLM
       - package: MLXSwiftLM

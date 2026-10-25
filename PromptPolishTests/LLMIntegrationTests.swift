@@ -33,9 +33,11 @@ final class LLMIntegrationTests: XCTestCase {
     private var isEnabled: Bool { ProcessInfo.processInfo.environment["PROMPTPOLISH_INTEGRATION"] == "1" }
 
     /// Модель для прогона: `make integration MODEL=mlx-community/...`, по умолчанию — модель приложения.
+    /// Выбирается так же, как в приложении: копия на диске, иначе скачивание.
     private var spec: ModelSpec {
-        let id = ProcessInfo.processInfo.environment["PROMPTPOLISH_MODEL"] ?? ""
-        return ModelSpec.all.first { $0.id == id } ?? .default
+        let id = ProcessInfo.processInfo.environment["PROMPTPOLISH_MODEL"].flatMap { $0.isEmpty ? nil : $0 }
+        let catalog = ModelCatalog.build(local: ModelLocator.standard.scan(), physicalMemory: ProcessInfo.processInfo.physicalMemory)
+        return ModelSpec(for: ModelCatalog.resolve(selectedID: id, installed: catalog.installed, downloads: catalog.downloads))
     }
 
     func testGeneratesPromptsOrQuestions() async throws {
@@ -45,7 +47,7 @@ final class LLMIntegrationTests: XCTestCase {
 
         let loadStart = ContinuousClock.now
         try await engine.prepare()
-        var report = "Модель: \(engine.spec.id)\nЗагрузка: \(ContinuousClock.now - loadStart)\n"
+        var report = "Модель: \(engine.spec.id) (\(engine.spec.directory?.path(percentEncoded: false) ?? "скачивание"))\nЗагрузка: \(ContinuousClock.now - loadStart)\n"
 
         // Повторяет сценарий ImproveCoordinator: вопросы → ответы → одна автокоррекция мета-промпта.
         for (idea, target) in Self.samples {
@@ -80,7 +82,7 @@ final class LLMIntegrationTests: XCTestCase {
 
     func testCancellationStopsGeneration() async throws {
         try XCTSkipUnless(isEnabled)
-        let engine = LLMEngine()
+        let engine = LLMEngine(spec: spec)
         try await engine.prepare()
 
         var chunks = 0

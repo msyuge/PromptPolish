@@ -25,10 +25,10 @@ final class ImproveCoordinator: ObservableObject {
     private var isCapturing = false
     private var session: Session?
 
-    init(textBridge: TextBridge = SystemTextBridge(), builder: PromptBuilder = .bundledOrFail(), engine: LLMEngine = LLMEngine()) {
+    init(textBridge: TextBridge = SystemTextBridge(), builder: PromptBuilder = .bundledOrFail(), models: ModelStore = ModelStore()) {
         self.textBridge = textBridge
         self.builder = builder
-        self.models = ModelStore(engine: engine)
+        self.models = models
     }
 
     func start() {
