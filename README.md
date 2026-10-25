@@ -1,46 +1,128 @@
-# PromptPolish
+<p align="center"><img src="PromptPolish/Resources/Assets.xcassets/AppIcon.appiconset/icon_256x256.png" width="128" alt="PromptPolish"></p>
 
-Утилита в строке меню macOS. Превращает идею в поле ввода любого AI-чата в готовый структурированный промт. Модель работает локально, интернет не нужен.
+<h1 align="center">PromptPolish</h1>
 
-Выделите текст в поле ввода → нажмите **⌥⌘P** → в панели рядом с текстом появится промт, подготовленный под этот чат → **Заменить**. Текст в поле заменится, а буфер обмена останется прежним.
+<p align="center"><b>English</b> · <a href="README.ru.md">Русский</a></p>
 
-## Как это работает
+A macOS menu bar utility that turns a rough idea typed into any AI chat into a structured, ready-to-send prompt. The model runs locally on your Mac — no internet connection and no API keys.
 
-1. **Текст** читается из активного поля ввода через Accessibility. Если приложение его не отдаёт, утилита копирует текст через ⌘C, а затем возвращает буфер обмена в исходное состояние.
-2. **Чат** определяется автоматически: в браузере — по адресу страницы, у десктопных приложений — по bundle ID.
+Select text in a chat's input field → press **⌥⌘P** → a prompt tailored to that chat streams into a panel next to the text → **Заменить** (Replace). The text in the field is replaced and your clipboard stays exactly as it was.
 
-   | Чат | Как распознаётся |
+**[Download the latest version](https://github.com/msyuge/PromptPolish/releases/latest)** · [User guide](docs/guide.md)
+
+## How it works
+
+1. **Reading the text.** The text is read from the focused input field via Accessibility. If an app doesn't expose it, PromptPolish copies it with ⌘C and then restores the clipboard.
+2. **Detecting the chat.** In a browser, by the page address; for desktop apps, by bundle ID.
+
+   | Chat | Detected by |
    |---|---|
-   | Claude | claude.ai, приложение Claude |
-   | ChatGPT | chatgpt.com, chat.openai.com, приложение ChatGPT |
+   | Claude | claude.ai, Claude app |
+   | ChatGPT | chatgpt.com, chat.openai.com, ChatGPT app |
    | Gemini | gemini.google.com, aistudio.google.com |
-   | Perplexity | perplexity.ai, приложение Perplexity |
+   | Perplexity | perplexity.ai, Perplexity app |
    | DeepSeek | chat.deepseek.com |
    | Grok | grok.com, x.com/i/grok |
    | Copilot | copilot.microsoft.com |
    | Le Chat | chat.mistral.ai |
-   | любой другой | общая инструкция |
+   | anything else | general instruction |
 
-3. **Промт генерируется** локальной моделью через [MLX](https://github.com/ml-explore/mlx-swift-lm), по умолчанию Qwen3.5 4B, выбрать можно в меню. У каждого чата своя системная инструкция со структурой, которую рекомендует его разработчик: XML-теги для Claude, markdown-разделы для ChatGPT, короткий поисковый запрос для Perplexity и так далее. Если идея слишком размытая, модель задаёт 2–3 уточняющих вопроса, и ответить на них можно прямо в панели.
-4. **Замена**: в обычных полях macOS текст заменяется через Accessibility, в браузерах и Electron-приложениях — вставкой ⌘V. Буфер обмена сохраняется и восстанавливается целиком: все элементы и все типы данных.
+3. **Generating the prompt.** A local model runs through [MLX](https://github.com/ml-explore/mlx-swift-lm) — Qwen3.5 4B by default, switchable from the menu. Each chat has its own system instruction that follows its vendor's prompting guidance: XML tags for Claude, markdown sections for ChatGPT, a short search query for Perplexity, and so on. If the idea is too vague, the model asks 2–3 clarifying questions that you answer right in the panel.
+4. **Replacing.** In native macOS fields the text is replaced via Accessibility; in browsers and Electron apps it is pasted with ⌘V. The clipboard is saved and restored completely — every item and every data type.
 
-## Требования
+## Requirements
 
-- macOS 14 или новее, Apple Silicon.
-- Около 3,5 ГБ свободной оперативной памяти под модель (проверено на M2 с 8 ГБ).
-- Около 3 ГБ на диске под модель. MLX-модели, уже скачанные в LM Studio, повторно не скачиваются.
-- Для сборки: Xcode (проверено на 27.1), [XcodeGen](https://github.com/yonaskolb/XcodeGen), Metal Toolchain.
+- macOS 14 or later, Apple Silicon.
+- About 3.5 GB of free memory for the model (tested on an M2 with 8 GB).
+- About 3 GB of disk space for the model. MLX models already downloaded in LM Studio are reused, not downloaded again.
 
-## Установка
+## Installation
 
-1. Скачайте `PromptPolish-1.0.0.dmg`, откройте его и перетащите **PromptPolish** в папку **Программы**.
-2. Запустите PromptPolish из Программ: в строке меню появится значок волшебной палочки. Приложение подписано Developer ID и нотаризовано Apple, поэтому Gatekeeper не показывает предупреждений.
-3. Выдайте разрешение Accessibility (см. ниже).
-4. При первом запуске утилита ищет модель на диске, а если не находит — скачивает Qwen3.5 4B (≈3 ГБ). Прогресс виден в меню.
+1. Download `PromptPolish-<version>.dmg` from [Releases](https://github.com/msyuge/PromptPolish/releases/latest), open it and drag **PromptPolish** to **Applications**.
+2. Launch PromptPolish from Applications — a magic wand icon appears in the menu bar. The app is signed with a Developer ID and notarized by Apple, so Gatekeeper shows no warnings.
+3. Grant the Accessibility permission (see below).
+4. On first launch PromptPolish looks for a model on disk and, if none is found, downloads Qwen3.5 4B (≈3 GB). Progress is shown in the menu.
 
-Если раньше стояла сборка из исходников, удалите `~/Applications/PromptPolish.app`. У релиза другие подпись и идентификатор (`com.alekseimaksimov.promptpolish`), поэтому Accessibility для него нужно выдать заново.
+To update, replace the app in Applications with the new version from the DMG. Settings, the chosen model and your system instruction edits are kept.
 
-### Сборка из исходников
+## Permissions
+
+PromptPolish needs one permission — **Accessibility**: without it, it can't read text from another app's input field, replace it, or send ⌘C/⌘V.
+
+1. macOS asks on first launch. If it didn't, choose **Выдать доступ к Accessibility…** (Grant Accessibility access) in the PromptPolish menu.
+2. Turn PromptPolish on in **System Settings → Privacy & Security → Accessibility**.
+3. PromptPolish notices the permission within a second — no restart needed.
+
+App Sandbox is disabled because Accessibility is unavailable inside it. This is also why PromptPolish is not on the Mac App Store.
+
+## Privacy
+
+- Your prompts are processed only by the local model on your Mac and are never sent anywhere.
+- No analytics, no telemetry. The only network access is to Hugging Face when downloading a model.
+- The system log records only technical events (text length, detected chat, replacement method), never the text itself.
+
+## Usage
+
+| Action | How |
+|---|---|
+| Improve a prompt | select text (or just place the cursor in the field) → **⌥⌘P** |
+| Replace the text in the field | **Заменить** (Replace) or **Return** |
+| Copy the result | **Копировать** (Copy) or **⇧⌘C** — the only case where the clipboard changes |
+| Answer the model's questions | type your answer → **Ответить** (Answer) or **⌘↩** |
+| Close without changes | **Отмена** (Cancel) or **Esc** |
+
+- If nothing is selected, the whole field is used.
+- When generation finishes you can edit the result in the panel before replacing.
+- The hotkey can be changed in **Настройки** (Settings).
+- The interface is in Russian; English names are given in parentheses.
+
+### Models
+
+Choose the model from the **Модель** (Model) submenu or in **Настройки** (Settings). The choice is remembered; switching unloads the previous model from memory. Only MLX models are supported — Ollama models and LM Studio GGUF files can't be read by the built-in engine.
+
+- **На диске** (On disk) — MLX models you already have:
+  - in LM Studio (`~/.lmstudio/models/<publisher>/<model>` and `~/.cache/lm-studio/models`);
+  - in the Hugging Face cache (`~/.cache/huggingface/hub`).
+
+  They are loaded straight from those folders: no second copy, no network, LM Studio doesn't need to be running.
+- **Скачать с Hugging Face** (Download from Hugging Face) — verified models that fit this Mac's memory:
+
+  | Model | Size | Notes |
+  |---|---|---|
+  | Qwen3.5 4B | ≈3.1 GB | default, best quality on 8 GB |
+  | Qwen3.5 2B | ≈1.8 GB | faster, simpler prompts |
+  | Qwen3.5 0.8B | ≈0.65 GB | fastest, weakest |
+  | Gemma 4 E2B | ≈3.6 GB | alternative from Google |
+  | Gemma 4 E4B, Qwen3.5 9B | 5.2 and 6 GB | only with 12 GB of memory or more |
+
+  Downloaded models go to the Hugging Face cache and work offline afterwards. Interrupted downloads resume where they stopped.
+
+### System instructions
+
+Each chat's system instruction can be edited in **Настройки → Системные инструкции** (Settings → System instructions):
+
+- the list of chats is on the left (a dot means the instruction is customized, a pencil means unsaved edits), the editor is on the right;
+- **Сохранить** (Save, ⌘S) applies the change to the next ⌥⌘P, no restart needed;
+- **Сбросить к стандартной** (Reset to default) restores the instruction shipped with the app;
+- **Показать файл в Finder** (Show file in Finder) — edits are stored in `~/Library/Application Support/PromptPolish/SystemPrompts/SystemPrompt-<chat>.txt` and can be edited in any text editor.
+
+The default instructions live in `PromptPolish/Resources/SystemPrompts/`.
+
+## Known limitations
+
+- **Model quality.** A 4B-parameter model sometimes gets details wrong (for example, describes language syntax incorrectly). Skim the result before replacing.
+- **Speed.** On an M2 a response takes 7–30 seconds, a long prompt up to a minute. Loading the model at launch takes 2–4 seconds.
+- **Frequent clarifying questions.** The model often asks even when the idea is clear enough — a consequence of rule 4 in the general instruction.
+- **Small-model defects.** Occasionally the model produces a prompt that asks the chat to "write a prompt", copies its own instruction into the result, or breaks XML tags. PromptPolish detects this and asks the model to rewrite up to two times; if the defect remains, the offending lines are removed. Each correction adds 10–30 seconds.
+- **Memory.** Qwen3.5 4B takes about 3.4 GB and stays loaded while PromptPolish runs. Don't keep a model loaded in LM Studio or Ollama at the same time on an 8 GB Mac, or it will start swapping.
+- **Browsers and Electron apps** always get the text via ⌘V. If a site transforms pasted text (for example, renders markdown), that affects the result.
+- **Keyboard layouts.** Synthetic ⌘A/⌘C/⌘V use ANSI key codes. QWERTY and Russian layouts work; plain Dvorak doesn't, "Dvorak – QWERTY ⌘" does.
+- **Secure input.** Password fields are skipped. If another app has Secure Keyboard Entry on (for example, Terminal), macOS blocks synthetic key presses.
+- **Clipboard managers.** Temporary text is marked `org.nspasteboard.TransientType`, which most managers ignore. They may record the restored clipboard contents again.
+
+## Building from source
+
+Requires Xcode (tested with 27.1), [XcodeGen](https://github.com/yonaskolb/XcodeGen) and the Metal Toolchain.
 
 ```bash
 brew install xcodegen
@@ -54,130 +136,53 @@ xcodebuild -downloadComponent MetalToolchain
 make install
 ```
 
-`make install` собирает Release-версию, копирует её в `~/Applications/PromptPolish.app` и запускает. Первая сборка идёт несколько минут: компилируется MLX вместе с Metal-шейдерами.
+`make install` builds the Release configuration, copies it to `~/Applications/PromptPolish.app` and launches it. The first build takes several minutes because MLX and its Metal shaders are compiled.
 
-Debug-сборки подписываются сертификатом **Apple Development**, Release — **Developer ID Application** (команда `6ALXRXJXN6`, `project.yml`). Если собираете под другой учётной записью, поменяйте `DEVELOPMENT_TEAM` и `scripts/ExportOptions.plist`. Подпись должна оставаться одной и той же от сборки к сборке, иначе macOS будет сбрасывать разрешение Accessibility после каждой пересборки.
+Debug builds are signed with **Apple Development**, Release builds with **Developer ID Application** (team `6ALXRXJXN6` in `project.yml`). To build under another account, change `DEVELOPMENT_TEAM` and `scripts/ExportOptions.plist`. Keep the signing identity stable between builds, otherwise macOS resets the Accessibility permission after every rebuild.
 
-### Модель
-
-Модель выбирается в меню **Модель** или в **Настройках**. Выбор запоминается, при переключении старая модель выгружается из памяти. Работают только MLX-модели: модели Ollama и GGUF-файлы LM Studio встроенный движок прочитать не может.
-
-- **На диске** — MLX-модели, которые уже скачаны:
-  - в LM Studio (`~/.lmstudio/models/<издатель>/<модель>` и `~/.cache/lm-studio/models`);
-  - в кэше Hugging Face (`~/.cache/huggingface/hub`).
-
-  Они грузятся прямо из этих папок: вторая копия не создаётся, сеть и запущенный LM Studio не нужны.
-- **Скачать с Hugging Face** — проверенные модели, которые поместятся в память этого Mac:
-
-  | Модель | Размер | Комментарий |
-  |---|---|---|
-  | Qwen3.5 4B | ≈3,1 ГБ | по умолчанию, лучшее качество на 8 ГБ |
-  | Qwen3.5 2B | ≈1,8 ГБ | быстрее, проще промты |
-  | Qwen3.5 0.8B | ≈0,65 ГБ | самая быстрая, слабая |
-  | Gemma 4 E2B | ≈3,6 ГБ | альтернатива от Google |
-  | Gemma 4 E4B, Qwen3.5 9B | 5,2 и 6 ГБ | только если памяти 12 ГБ и больше |
-
-  Скачанная модель попадает в кэш Hugging Face и дальше работает офлайн. При обрыве связи скачивание продолжается с места обрыва.
-
-Модели, которым может не хватить памяти, помечены «⚠︎ мало памяти». По умолчанию выбрана Qwen3.5 4B: если она есть в LM Studio, берётся оттуда.
-
-## Разрешения
-
-Нужно одно разрешение — **Accessibility**: без него утилита не может прочитать текст из чужого поля ввода, заменить его и отправить ⌘C/⌘V.
-
-1. При первом запуске macOS покажет запрос. Если его не было, нажмите в меню PromptPolish **«Выдать доступ к Accessibility…»**.
-2. Включите PromptPolish в **System Settings → Privacy & Security → Accessibility**.
-3. Утилита сама заметит разрешение примерно через секунду, перезапускать её не нужно.
-
-App Sandbox отключён: с ним Accessibility недоступен. Утилита не обращается в сеть, кроме случая, когда скачивает модель.
-
-## Использование
-
-| Действие | Как |
+| Command | What it does |
 |---|---|
-| Улучшить промт | выделить текст (или просто поставить курсор в поле) → **⌥⌘P** |
-| Заменить текст в поле | **Заменить** или **Return** |
-| Скопировать результат | **Копировать** или **⇧⌘C** — единственный случай, когда буфер обмена меняется |
-| Ответить на вопросы модели | ввести ответ → **⌘↩** |
-| Закрыть без изменений | **Отмена** или **Esc** |
+| `make build` | Debug build into `build/DerivedData` |
+| `make run` | build and relaunch the Debug app |
+| `make test` | unit tests |
+| `make integration` | real generation on the model for every chat, report in `build/integration-output.txt` |
+| `make install` | Release build into `~/Applications` |
+| `make dmg` | signed DMG without notarization |
+| `make release` | DMG signed with Developer ID and notarized |
+| `make icon` | regenerate the app icon (`scripts/make-icon.swift`) |
 
-- Если ничего не выделено, берётся всё содержимое поля.
-- Когда генерация закончится, результат можно отредактировать прямо в панели перед заменой.
-- Хоткей можно переназначить в **Настройках**.
-- Системные инструкции редактируются в **Настройках → «Системные инструкции»**:
-  - слева — список чатов (точка — инструкция изменена, карандаш — есть несохранённые правки), справа — редактор;
-  - **Сохранить** (⌘S) — изменения применяются к следующему ⌥⌘P, перезапуск не нужен;
-  - **Сбросить к стандартной** — вернуть инструкцию, поставляемую с приложением;
-  - **Показать файл в Finder** — правки лежат в `~/Library/Application Support/PromptPolish/SystemPrompts/SystemPrompt-<чат>.txt`, их можно править в любом редакторе. Изменения подхватываются, когда вкладка открывается снова.
-
-  Стандартные инструкции — `PromptPolish/Resources/SystemPrompts/`. `SystemPrompt-generic.txt` — общая инструкция «Prompt Engineer AI».
-
-## Известные ограничения
-
-- **Качество модели.** Модель на 4B параметров иногда допускает фактические ошибки в деталях промта (например, неверно описывает синтаксис языка) и смешивает «ты» и «вы». Перед заменой результат стоит пробежать глазами.
-- **Скорость.** На M2 ответ занимает 7–30 секунд, длинный промт — до минуты. Загрузка модели при запуске — 2–4 секунды.
-- **Частые уточняющие вопросы.** Модель нередко спрашивает и тогда, когда информации достаточно. Это следствие правила 4 общей инструкции.
-- **Дефекты маленькой модели.** Иногда модель выдаёт промт, который просит чат «написать промпт», переписывает в него правила своей инструкции или ломает XML-теги. Утилита это распознаёт и до двух раз автоматически просит переписать; если дефект остался, строки с ним вырезаются. Каждое исправление добавляет 10–30 секунд.
-- **Память.** Qwen3.5 4B занимает около 3,4 ГБ и остаётся в памяти, пока утилита запущена. Не держите модель одновременно загруженной в LM Studio или Ollama, иначе на 8 ГБ начнётся своп.
-- **Только MLX.** Модели Ollama и GGUF-модели LM Studio не поддерживаются. Модели из LM Studio с архитектурой, которой нет в mlx-swift-lm, появятся в меню, но при загрузке покажут ошибку.
-- **Замена в браузерах и Electron** всегда идёт через ⌘V. Если сайт как-то обрабатывает вставленный текст (например, превращает markdown в форматирование), это повлияет и на результат.
-- **Раскладки.** Синтетические ⌘A/⌘C/⌘V отправляются по физическим клавишам ANSI. На русской и QWERTY-раскладках всё работает, на чистом Dvorak — нет; раскладка «Dvorak – QWERTY ⌘» подходит.
-- **Защищённый ввод.** Поля паролей пропускаются. Если в другом приложении включён Secure Keyboard Entry (например, в Terminal), macOS блокирует синтетические нажатия.
-- **Менеджеры буфера обмена.** Временный текст помечен как `org.nspasteboard.TransientType`, и большинство менеджеров его не сохраняют. Восстановленное содержимое буфера они могут записать в историю повторно.
-- **Неизвестные чаты** получают общую инструкцию без адаптации под чат.
-- **Панель** ставится под выделенным текстом. Если приложение не сообщает положение каретки, панель встаёт у поля ввода или у курсора мыши.
-
-## Распространение
-
-Mac App Store не подходит: там обязателен App Sandbox, а с ним Accessibility недоступен. Поэтому PromptPolish распространяется как DMG, подписанный **Developer ID** и нотаризованный Apple.
-
-Один раз создайте в связке ключей профиль для нотаризации. Понадобятся Apple ID и [пароль приложения](https://account.apple.com/account/manage) (Вход и безопасность → Пароли приложений); команда спросит пароль сама:
-
-```bash
-xcrun notarytool store-credentials PromptPolish --apple-id ВАШ_APPLE_ID --team-id 6ALXRXJXN6
-```
-
-Затем:
-
-```bash
-make release
-```
-
-`make release` (`scripts/release.sh`) делает всё по порядку:
-
-1. обновляет версию из `project.yml` и файл лицензий сторонних компонентов;
-2. собирает архив Release и экспортирует его с подписью Developer ID и Hardened Runtime;
-3. отправляет приложение на нотаризацию и прикрепляет к нему тикет (stapling);
-4. собирает `build/release/PromptPolish-<версия>.dmg` с ярлыком на «Программы», подписывает, нотаризует и тоже прикрепляет тикет;
-5. проверяет результат через Gatekeeper (`spctl`) и записывает SHA-256 рядом с DMG.
-
-`make dmg` собирает подписанный DMG без нотаризации — чтобы проверить сборку, не отправляя её в Apple.
-
-Новая версия: поменяйте `CFBundleShortVersionString` и увеличьте `CFBundleVersion` в `project.yml`, затем `make release`.
-
-## Лицензии
-
-Тексты лицензий сторонних компонентов собраны в `PromptPolish/Resources/Acknowledgements.txt` (обновляется `scripts/make-acknowledgements.sh` при каждом релизе) и открываются из **Настроек → Лицензии**. Основные компоненты: [mlx-swift](https://github.com/ml-explore/mlx-swift) и [mlx-swift-lm](https://github.com/ml-explore/mlx-swift-lm) (MIT), [swift-transformers](https://github.com/huggingface/swift-transformers) и [swift-huggingface](https://github.com/huggingface/swift-huggingface) (Apache-2.0), [KeyboardShortcuts](https://github.com/sindresorhus/KeyboardShortcuts) (MIT).
-
-Модели в приложение не входят: их скачивает пользователь, и действуют лицензии самих моделей — Qwen3.5 распространяется под Apache-2.0, Gemma 4 — по [условиям Gemma](https://ai.google.dev/gemma/terms).
-
-## Разработка
-
-| Команда | Что делает |
-|---|---|
-| `make build` | Debug-сборка в `build/DerivedData` |
-| `make run` | сборка и перезапуск Debug-версии |
-| `make test` | unit-тесты (буфер обмена, разбор ответа модели, определение чата, поиск модели, размещение панели) |
-| `make integration` | реальная генерация на модели по всем чатам, отчёт в `build/integration-output.txt` |
-| `make install` | Release в `~/Applications` |
-| `make dmg` | подписанный DMG без нотаризации |
-| `make release` | DMG с подписью Developer ID и нотаризацией |
-| `make icon` | пересоздать иконку (`scripts/make-icon.swift`) |
-
-Логи (текст промтов в них не пишется):
+Logs (prompt text is never logged):
 
 ```bash
 /usr/bin/log show --last 30m --info --predicate 'subsystem == "com.alekseimaksimov.promptpolish"'
 ```
 
-Архитектура и принятые решения описаны в [CLAUDE.md](CLAUDE.md), план следующей фазы — в [docs/phase2.md](docs/phase2.md).
+Architecture notes and design decisions are in [CLAUDE.md](CLAUDE.md) (in Russian); the next phase plan is in [docs/phase2.md](docs/phase2.md).
+
+## Releasing
+
+Create a notarization profile in the keychain once, replacing `you@example.com` with your Apple ID. You'll need an [app-specific password](https://account.apple.com/account/manage) (Sign-In and Security → App-Specific Passwords); the command asks for it:
+
+```bash
+xcrun notarytool store-credentials PromptPolish --apple-id you@example.com --team-id 6ALXRXJXN6
+```
+
+Then bump `CFBundleShortVersionString` and `CFBundleVersion` in `project.yml` and run:
+
+```bash
+make release
+```
+
+`scripts/release.sh` regenerates the third-party license file, archives and exports the app with Developer ID and Hardened Runtime, notarizes and staples the app, builds `build/release/PromptPolish-<version>.dmg`, signs, notarizes and staples the DMG, checks it with Gatekeeper and writes its SHA-256. Publish it:
+
+```bash
+gh release create v1.0.1 build/release/PromptPolish-1.0.1.dmg build/release/PromptPolish-1.0.1.dmg.sha256
+```
+
+## License
+
+PromptPolish is released under the [MIT License](LICENSE).
+
+Third-party license texts are bundled in `PromptPolish/Resources/Acknowledgements.txt` and available in the app under **Настройки → Лицензии** (Settings → Licenses). Main components: [mlx-swift](https://github.com/ml-explore/mlx-swift) and [mlx-swift-lm](https://github.com/ml-explore/mlx-swift-lm) (MIT), [swift-transformers](https://github.com/huggingface/swift-transformers) and [swift-huggingface](https://github.com/huggingface/swift-huggingface) (Apache-2.0), [KeyboardShortcuts](https://github.com/sindresorhus/KeyboardShortcuts) (MIT).
+
+Models are not bundled: users download them, and the models' own licenses apply — Qwen3.5 is Apache-2.0, Gemma 4 is under the [Gemma Terms of Use](https://ai.google.dev/gemma/terms).
