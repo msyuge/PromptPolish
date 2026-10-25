@@ -31,7 +31,7 @@ struct SystemPromptsView: View {
             Divider()
             editor(for: selection)
         }
-        .frame(width: 780, height: 540)
+        .frame(width: SettingsView.size.width, height: SettingsView.size.height)
         .onAppear { store.reload() }
     }
 

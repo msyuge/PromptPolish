@@ -1,7 +1,7 @@
 import KeyboardShortcuts
 import SwiftUI
 
-/// Вкладки окна настроек; выбранная хранится в UserDefaults, чтобы пункт меню мог открыть нужную.
+/// Вкладки окна настроек; выбранная запоминается между открытиями.
 enum SettingsTab: String {
     case general
     case instructions
@@ -10,6 +10,9 @@ enum SettingsTab: String {
 }
 
 struct SettingsView: View {
+    /// Общий размер всех вкладок: окно не меняет размер при переключении.
+    static let size = CGSize(width: 780, height: 540)
+
     @ObservedObject var permission: AccessibilityPermission
     @ObservedObject var models: ModelStore
     @ObservedObject var prompts: SystemPromptStore
@@ -112,8 +115,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 460)
-        .fixedSize(horizontal: false, vertical: true)
+        .frame(width: Self.size.width, height: Self.size.height)
     }
 }
 

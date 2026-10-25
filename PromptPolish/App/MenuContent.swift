@@ -5,7 +5,6 @@ struct MenuContent: View {
     @ObservedObject var permission: AccessibilityPermission
     @ObservedObject var models: ModelStore
     @Environment(\.openSettings) private var openSettings
-    @AppStorage(SettingsTab.storageKey) private var settingsTab: SettingsTab = .general
 
     init(coordinator: ImproveCoordinator) {
         self.coordinator = coordinator
@@ -35,14 +34,7 @@ struct MenuContent: View {
 
         Divider()
 
-        Button("Системные инструкции…") {
-            settingsTab = .instructions
-            NSApp.activate(ignoringOtherApps: true)
-            openSettings()
-        }
-
         Button("Настройки…") {
-            settingsTab = .general
             NSApp.activate(ignoringOtherApps: true)
             openSettings()
         }
