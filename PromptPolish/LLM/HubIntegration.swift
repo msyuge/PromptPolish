@@ -5,11 +5,14 @@ import Tokenizers
 
 /// Скачивает снимок репозитория Hugging Face в стандартный кэш (~/.cache/huggingface/hub).
 /// Если полный снимок уже в кэше, swift-huggingface отдаёт его без обращения к сети.
+/// При обрыве соединения скачивание повторяется: swift-huggingface дозакачивает файл с места обрыва.
 struct HubSnapshotDownloader: MLXLMCommon.Downloader {
     private let client: HubClient
+    private let maxAttempts: Int
 
-    init(client: HubClient = HubClient()) {
+    init(client: HubClient = HubClient(), maxAttempts: Int = 6) {
         self.client = client
+        self.maxAttempts = maxAttempts
     }
 
     func download(
@@ -20,14 +23,27 @@ struct HubSnapshotDownloader: MLXLMCommon.Downloader {
         progressHandler: @Sendable @escaping (Progress) -> Void
     ) async throws -> URL {
         guard let repo = Repo.ID(rawValue: id) else { throw LLMError.invalidModelID(id) }
-        return try await client.downloadSnapshot(
-            of: repo,
-            revision: revision ?? "main",
-            matching: patterns,
-            progressHandler: { @MainActor progress in
-                progressHandler(progress)
+        var attempt = 1
+        while true {
+            do {
+                return try await client.downloadSnapshot(
+                    of: repo,
+                    revision: revision ?? "main",
+                    matching: patterns,
+                    progressHandler: { @MainActor progress in
+                        progressHandler(progress)
+                    }
+                )
+            } catch let error as URLError where Self.isTransient(error) && attempt < maxAttempts {
+                try await Task.sleep(for: .seconds(min(30, 2 << attempt)))
+                attempt += 1
             }
-        )
+        }
+    }
+
+    static func isTransient(_ error: URLError) -> Bool {
+        [.networkConnectionLost, .notConnectedToInternet, .timedOut, .cannotConnectToHost,
+         .cannotFindHost, .dnsLookupFailed, .secureConnectionFailed].contains(error.code)
     }
 }
 

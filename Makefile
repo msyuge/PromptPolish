@@ -15,9 +15,10 @@ build: generate
 test: generate
 	$(XCB) test -quiet -skip-testing:PromptPolishTests/LLMIntegrationTests
 
-# Реальная генерация на модели (первый запуск скачивает ≈1,7 ГБ). Отчёт: build/integration-output.txt
+# Реальная генерация на модели (первый запуск скачивает веса). Отчёт: build/integration-output.txt
+# Другая модель: make integration MODEL=mlx-community/Qwen2.5-7B-Instruct-4bit
 integration: generate
-	set -o pipefail; TEST_RUNNER_PROMPTPOLISH_INTEGRATION=1 $(XCB) test -only-testing:PromptPolishTests/LLMIntegrationTests 2>&1 | grep -E "error:|passed|failed|skipped|TEST"; cat build/integration-output.txt
+	set -o pipefail; TEST_RUNNER_PROMPTPOLISH_INTEGRATION=1 TEST_RUNNER_PROMPTPOLISH_MODEL=$(MODEL) $(XCB) test -only-testing:PromptPolishTests/LLMIntegrationTests 2>&1 | grep -E "error:|passed|failed|skipped|TEST"; cat build/integration-output.txt
 
 run: build
 	-pkill -x PromptPolish

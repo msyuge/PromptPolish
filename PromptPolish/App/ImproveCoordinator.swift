@@ -11,18 +11,22 @@ final class ImproveCoordinator: ObservableObject {
     private struct Session {
         let captured: CapturedText
         let preview: PreviewModel
+        /// Диалог с моделью: растёт, когда пользователь отвечает на уточняющие вопросы.
+        var turns: [ChatTurn]
         var generation: Task<Void, Never>?
     }
 
     private let textBridge: TextBridge
+    private let builder: PromptBuilder
     private let panel = PreviewPanelController()
     private let logger = Logger(subsystem: "local.promptpolish", category: "coordinator")
     private var isCapturing = false
     private var session: Session?
 
-    init(textBridge: TextBridge = SystemTextBridge(), engine: LLMEngine? = nil) {
+    init(textBridge: TextBridge = SystemTextBridge(), builder: PromptBuilder = .bundledOrFail(), engine: LLMEngine = LLMEngine()) {
         self.textBridge = textBridge
-        self.models = ModelStore(engine: engine ?? LLMEngine(builder: .bundledOrFail()))
+        self.builder = builder
+        self.models = ModelStore(engine: engine)
     }
 
     func start() {
@@ -67,31 +71,55 @@ final class ImproveCoordinator: ObservableObject {
         preview.onReplace = { [weak self] in self?.replace() }
         preview.onCopy = { [weak self] in self?.copy() }
         preview.onCancel = { [weak self] in self?.finish() }
+        preview.onAnswer = { [weak self] in self?.answerQuestions() }
 
-        session = Session(captured: captured, preview: preview)
+        session = Session(captured: captured, preview: preview, turns: builder.messages(for: captured.text, target: target))
         panel.show(preview, models: models, anchor: captured.anchor)
-        session?.generation = Task { [weak self] in
-            await self?.generate(captured.text, target: target, into: preview)
+        startGeneration()
+    }
+
+    private func startGeneration() {
+        guard let session else { return }
+        let turns = session.turns
+        let preview = session.preview
+        self.session?.generation = Task { [weak self] in
+            await self?.generate(turns, into: preview)
         }
     }
 
-    private func generate(_ prompt: String, target: ChatTarget, into preview: PreviewModel) async {
+    private func generate(_ turns: [ChatTurn], into preview: PreviewModel) async {
         preview.phase = models.state == .ready ? .generating : .waitingForModel
         var raw = ""
-        let languageCode = PromptBuilder.languageCode(of: prompt)
         do {
-            for try await chunk in models.engine.improve(prompt, for: target) {
+            for try await chunk in models.engine.respond(to: turns) {
                 preview.phase = .generating
                 raw += chunk
-                preview.text = ModelOutputCleaner.clean(raw, languageCode: languageCode)
+                preview.apply(ModelReply.parse(raw))
             }
-            preview.phase = preview.text.isEmpty ? .failed(LLMError.emptyOutput.localizedDescription) : .ready
+            switch ModelReply.parse(raw) {
+            case .questions:
+                logger.notice("model asked clarifying questions")
+                session?.turns.append(ChatTurn(role: .assistant, content: raw))
+                preview.phase = .needsAnswers
+            case let .prompt(prompt):
+                preview.phase = prompt.isEmpty ? .failed(LLMError.emptyOutput.localizedDescription) : .ready
+            }
         } catch is CancellationError {
             return
         } catch {
             logger.error("generation failed: \(error.localizedDescription, privacy: .public)")
             preview.phase = .failed(error.localizedDescription)
         }
+    }
+
+    private func answerQuestions() {
+        guard var session, session.preview.canSendAnswer,
+              let questions = session.turns.last, questions.role == .assistant else { return }
+        session.turns = builder.followUp(Array(session.turns.dropLast()), questions: questions.content, answers: session.preview.answer)
+        session.preview.answer = ""
+        session.preview.apply(.prompt(""))
+        self.session = session
+        startGeneration()
     }
 
     private func replace() {

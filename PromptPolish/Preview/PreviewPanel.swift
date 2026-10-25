@@ -36,7 +36,7 @@ final class PreviewPanel: NSPanel {
 
 @MainActor
 final class PreviewPanelController {
-    static let size = CGSize(width: 480, height: 320)
+    static let size = CGSize(width: 560, height: 440)
 
     private var panel: PreviewPanel?
 

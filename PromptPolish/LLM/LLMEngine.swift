@@ -8,13 +8,23 @@ struct ModelSpec: Sendable {
     let displayName: String
     let approximateSize: String
     let extraEOSTokens: Set<String>
+    /// Параметры шаблона чата (например, отключение режима рассуждений у Qwen3.5).
+    let templateContext: [String: Bool]
+    let parameters: GenerateParameters
 
-    static let qwen25_3B = ModelSpec(
-        id: "mlx-community/Qwen2.5-3B-Instruct-4bit",
-        displayName: "Qwen2.5 3B Instruct (4-bit)",
-        approximateSize: "≈1,7 ГБ",
-        extraEOSTokens: ["<|im_end|>"]
+    /// Qwen3.5 4B (март 2026): ≈3 ГБ весов — помещается на Mac с 8 ГБ памяти вместе с браузером.
+    /// Рассуждения отключены: для переписывания промта они только замедляют ответ.
+    static let qwen35_4B = ModelSpec(
+        id: "mlx-community/Qwen3.5-4B-4bit",
+        displayName: "Qwen3.5 4B (4-bit)",
+        approximateSize: "≈3 ГБ",
+        extraEOSTokens: ["<|im_end|>"],
+        templateContext: ["enable_thinking": false],
+        parameters: GenerateParameters(maxTokens: 1500, temperature: 0.7, topP: 0.8, topK: 20)
     )
+
+    static let `default` = qwen35_4B
+    static let all: [ModelSpec] = [.qwen35_4B]
 
     var configuration: ModelConfiguration {
         ModelConfiguration(id: id, extraEOSTokens: extraEOSTokens)
@@ -30,15 +40,12 @@ actor LLMEngine {
     }
 
     nonisolated let spec: ModelSpec
-    private let builder: PromptBuilder
-    private let parameters = GenerateParameters(maxTokens: 1024, temperature: 0.2, topP: 0.9)
 
     private var container: ModelContainer?
     private var loadTask: Task<ModelContainer, Error>?
 
-    init(spec: ModelSpec = .qwen25_3B, builder: PromptBuilder) {
+    init(spec: ModelSpec = .default) {
         self.spec = spec
-        self.builder = builder
     }
 
     var isLoaded: Bool { container != nil }
@@ -48,12 +55,12 @@ actor LLMEngine {
         _ = try await loadedContainer(onEvent: onEvent)
     }
 
-    /// Стримит улучшенную версию промта кусками текста. Отмена задачи-потребителя останавливает генерацию.
-    nonisolated func improve(_ prompt: String, for target: ChatTarget = .generic) -> AsyncThrowingStream<String, Error> {
+    /// Стримит ответ модели на диалог кусками текста. Отмена задачи-потребителя останавливает генерацию.
+    nonisolated func respond(to turns: [ChatTurn]) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    try await self.generate(prompt, target: target) { continuation.yield($0) }
+                    try await self.generate(turns) { continuation.yield($0) }
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
@@ -63,16 +70,18 @@ actor LLMEngine {
         }
     }
 
-    private func generate(_ prompt: String, target: ChatTarget, onChunk: @Sendable (String) -> Void) async throws {
+    private func generate(_ turns: [ChatTurn], onChunk: @Sendable (String) -> Void) async throws {
         let container = try await loadedContainer(onEvent: { _ in })
-        let chat: [Chat.Message] = builder.messages(for: prompt, target: target).map { turn in
+        let chat: [Chat.Message] = turns.map { turn in
             switch turn.role {
             case .system: .system(turn.content)
             case .user: .user(turn.content)
+            case .assistant: .assistant(turn.content)
             }
         }
-        let input = try await container.prepare(input: UserInput(chat: chat))
-        let stream = try await container.generate(input: input, parameters: parameters)
+        let context: [String: any Sendable] = spec.templateContext
+        let input = try await container.prepare(input: UserInput(chat: chat, additionalContext: context))
+        let stream = try await container.generate(input: input, parameters: spec.parameters)
         for await event in stream {
             try Task.checkCancellation()
             if let chunk = event.chunk {

@@ -5,71 +5,87 @@ struct ChatTurn: Equatable, Sendable {
     enum Role: String, Sendable {
         case system
         case user
+        case assistant
     }
 
     let role: Role
     let content: String
 }
 
-/// Собирает сообщения для модели. Промт пользователя оборачивается в теги, чтобы маленькая модель
-/// переписывала его, а не отвечала на него.
+/// Собирает диалог с моделью: системная инструкция под конкретный чат из `SystemPrompts/SystemPrompt-<чат>.txt`,
+/// идея пользователя в тегах `<prompt>` и служебные строки, которые нужны утилите.
 struct PromptBuilder: Sendable {
-    let systemPrompt: String
-    /// Короткие подсказки, что лучше работает в конкретном чате (ключ — `ChatTarget.rawValue`).
-    let chatStyles: [String: String]
+    /// Строка, с которой модель начинает ответ, если задаёт уточняющие вопросы.
+    static let questionsMarker = "ВОПРОСЫ:"
 
-    init(systemPrompt: String, chatStyles: [String: String] = [:]) {
-        self.systemPrompt = systemPrompt
-        self.chatStyles = chatStyles
+    /// Системные инструкции по чатам (ключ — `ChatTarget.rawValue`); `generic` — общая инструкция пользователя.
+    let systemPrompts: [String: String]
+
+    init(systemPrompts: [String: String]) {
+        self.systemPrompts = systemPrompts
     }
 
-    /// Системный промт из `SystemPrompt.txt` и подсказки из `ChatStyles.json` в ресурсах приложения.
+    init(systemPrompt: String) {
+        self.init(systemPrompts: [ChatTarget.generic.rawValue: systemPrompt])
+    }
+
+    /// Инструкции из ресурсов приложения. Для каждого чата должен быть свой файл.
     static func bundled(in bundle: Bundle = .main) throws -> PromptBuilder {
-        guard let promptURL = bundle.url(forResource: "SystemPrompt", withExtension: "txt"),
-              let stylesURL = bundle.url(forResource: "ChatStyles", withExtension: "json") else {
-            throw LLMError.missingSystemPrompt
+        var prompts: [String: String] = [:]
+        for target in ChatTarget.allCases {
+            guard let url = bundle.url(forResource: "SystemPrompt-\(target.rawValue)", withExtension: "txt") else {
+                throw LLMError.missingSystemPrompt(target.rawValue)
+            }
+            prompts[target.rawValue] = try String(contentsOf: url, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        let text = try String(contentsOf: promptURL, encoding: .utf8)
-        let styles = try JSONDecoder().decode([String: String].self, from: Data(contentsOf: stylesURL))
-        return PromptBuilder(systemPrompt: text.trimmingCharacters(in: .whitespacesAndNewlines), chatStyles: styles)
+        return PromptBuilder(systemPrompts: prompts)
     }
 
-    /// `SystemPrompt.txt` копируется в бандл при сборке; его отсутствие — дефект сборки, а не runtime-ошибка.
+    /// Инструкции копируются в бандл при сборке; их отсутствие — дефект сборки, а не runtime-ошибка.
     static func bundledOrFail() -> PromptBuilder {
         do {
             return try bundled()
         } catch {
-            fatalError("SystemPrompt.txt: \(error.localizedDescription)")
+            fatalError(error.localizedDescription)
         }
     }
 
-    func messages(for userPrompt: String, target: ChatTarget = .generic) -> [ChatTurn] {
-        let prompt = userPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        var header: [String] = []
-        if target != .generic, let style = chatStyles[target.rawValue] {
-            header.append("Target: \(target.displayName)")
-            header.append("Style: \(style)")
-        }
-        let language = Self.languageName(of: prompt)
-        header.append("Language: \(language)")
-        // Язык повторяется после промта: маленькая модель лучше всего слушается последней строки.
-        let user = header.joined(separator: "\n") + "\n<prompt>\n\(prompt)\n</prompt>\nWrite the result in \(language)."
+    func systemPrompt(for target: ChatTarget) -> String {
+        systemPrompts[target.rawValue] ?? systemPrompts[ChatTarget.generic.rawValue] ?? ""
+    }
+
+    func messages(for idea: String, target: ChatTarget = .generic) -> [ChatTurn] {
+        let idea = idea.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lines = [
+            "Идея пользователя:", "<prompt>", idea, "</prompt>", "",
+            "Язык итогового промпта: \(Self.languageName(of: idea)).",
+            "Не используй заглушки в квадратных скобках.",
+            "Если задаёшь уточняющие вопросы, начни ответ со строки «\(Self.questionsMarker)».",
+        ]
         return [
-            ChatTurn(role: .system, content: systemPrompt),
-            ChatTurn(role: .user, content: user),
+            ChatTurn(role: .system, content: systemPrompt(for: target)),
+            ChatTurn(role: .user, content: lines.joined(separator: "\n")),
+        ]
+    }
+
+    /// Продолжение диалога после ответов пользователя на уточняющие вопросы.
+    func followUp(_ history: [ChatTurn], questions: String, answers: String) -> [ChatTurn] {
+        let answers = answers.trimmingCharacters(in: .whitespacesAndNewlines)
+        return history + [
+            ChatTurn(role: .assistant, content: questions),
+            ChatTurn(
+                role: .user,
+                content: "Мои ответы:\n\(answers)\n\nТеперь напиши итоговый промпт. Больше не задавай вопросов."
+            ),
         ]
     }
 
     /// Маленькая модель сама плохо держит язык ответа, поэтому язык определяется заранее и называется явно.
     static func languageName(of text: String) -> String {
-        let fallback = "the same language as the prompt"
+        let fallback = "тот же, что у идеи пользователя"
         guard let language = detectLanguage(of: text) else { return fallback }
-        return Locale(identifier: "en").localizedString(forLanguageCode: language.rawValue) ?? fallback
-    }
-
-    /// Код языка промта (например, "ru") для постобработки ответа.
-    static func languageCode(of text: String) -> String? {
-        detectLanguage(of: text)?.rawValue
+        return Locale(identifier: "ru").localizedString(forLanguageCode: language.rawValue) ?? fallback
     }
 
     /// На коротких русских фразах NLLanguageRecognizer часто выбирает украинский, болгарский или казахский.
@@ -89,140 +105,14 @@ struct PromptBuilder: Sendable {
     }
 }
 
-/// Убирает обёртки, которые маленькие модели добавляют вопреки инструкции.
-enum ModelOutputCleaner {
-    private static let labelPrefixes = [
-        "улучшенный промт:", "улучшенный промпт:", "переписанный промт:", "переписанный промпт:",
-        "improved prompt:", "rewritten prompt:", "output:",
-    ]
-
-    /// Названия разделов, которые модель берёт из английских подсказок, в русском промте заменяются на русские.
-    private static let russianSections: [(String, String)] = [
-        ("Answer format", "Формат ответа"), ("Requirements", "Требования"), ("Constraints", "Ограничения"),
-        ("Context", "Контекст"), ("Question", "Вопрос"), ("Task", "Задача"), ("Role", "Роль"),
-    ]
-    private static let sectionNames = Set(russianSections.flatMap { [$0.0, $0.1] })
-
-    static func clean(_ raw: String, languageCode: String? = nil) -> String {
-        normalizeStructure(cleanWrapping(raw), russian: languageCode == "ru")
-    }
-
-    /// Выравнивает структуру: `Раздел: текст`, пункты `- текст`, без пустых строк (кроме блоков кода).
-    static func normalizeStructure(_ text: String, russian: Bool) -> String {
-        var inCode = false
-        var lines: [String] = []
-        for line in text.components(separatedBy: "\n") {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("```") {
-                inCode.toggle()
-                lines.append(line)
-                continue
-            }
-            if inCode {
-                lines.append(line)
-                continue
-            }
-            if trimmed.isEmpty { continue }
-            lines.append(normalizeLine(trimmed, russian: russian))
-        }
-        return lines.joined(separator: "\n")
-    }
-
-    private static func normalizeLine(_ line: String, russian: Bool) -> String {
-        if let marker = line.first, "-•*".contains(marker), line.count > 1,
-           !line.hasPrefix("**"), !line.hasPrefix("--") {
-            return "- " + line.dropFirst().trimmingCharacters(in: .whitespaces)
-        }
-        guard let colon = line.firstIndex(of: ":") else { return line }
-        var name = String(line[..<colon]).trimmingCharacters(in: .whitespaces)
-        guard sectionNames.contains(where: { $0.caseInsensitiveCompare(name) == .orderedSame }) else { return line }
-        if russian, let pair = russianSections.first(where: { $0.0.caseInsensitiveCompare(name) == .orderedSame }) {
-            name = pair.1
-        }
-        let rest = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
-        return rest.isEmpty ? "\(name):" : "\(name): \(rest)"
-    }
-
-    private static func cleanWrapping(_ raw: String) -> String {
-        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        text = strip(text, prefix: "<prompt>", suffix: "</prompt>")
-        text = stripCodeFence(text)
-
-        let lowered = text.lowercased()
-        if let label = labelPrefixes.first(where: { lowered.hasPrefix($0) }) {
-            text = String(text.dropFirst(label.count)).trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        for (open, close) in [("\"", "\""), ("«", "»"), ("“", "”")] where text.count > 1 {
-            if text.hasPrefix(open), text.hasSuffix(close),
-               !text.dropFirst().dropLast().contains(where: { String($0) == open || String($0) == close }) {
-                text = String(text.dropFirst().dropLast())
-            }
-        }
-        return removePlaceholders(from: text).trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    /// Заглушки вида «[укажи аудиторию]» запрещены промтом, но маленькая модель иногда их добавляет.
-    /// Совпадает только текст в скобках, начинающийся со строчной буквы, не прилегающий к идентификатору
-    /// и без `:`/`=`/кавычек — так не задеваются `array[index]`, `[String: Int]`, `[1, 2]`. Код в ``` не трогается.
-    private static let placeholder = try! NSRegularExpression(
-        pattern: #"(?<![\w\])])\s?\[(?=[a-zа-яё])[^\[\]\n`:="]{2,80}\]"#
-    )
-
-    static func removePlaceholders(from text: String) -> String {
-        var inCode = false
-        var lines: [String] = []
-        for line in text.components(separatedBy: "\n") {
-            if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
-                inCode.toggle()
-                lines.append(line)
-                continue
-            }
-            guard !inCode else {
-                lines.append(line)
-                continue
-            }
-            let range = NSRange(line.startIndex..., in: line)
-            guard placeholder.firstMatch(in: line, range: range) != nil else {
-                lines.append(line)
-                continue
-            }
-            let isBullet = line.trimmingCharacters(in: .whitespaces).hasPrefix("- ")
-            var cleaned = placeholder.stringByReplacingMatches(in: line, range: range, withTemplate: "")
-            cleaned = cleaned.replacingOccurrences(of: #"\s+([.,;:!?])"#, with: "$1", options: .regularExpression)
-            let meaningful = cleaned.trimmingCharacters(in: CharacterSet(charactersIn: "-•*:;,. ").union(.whitespaces))
-            // Пункт списка, который держался на заглушке, бессмысленен без неё.
-            if isBullet || meaningful.isEmpty { continue }
-            lines.append(cleaned)
-        }
-        return lines.joined(separator: "\n")
-    }
-
-    private static func strip(_ text: String, prefix: String, suffix: String) -> String {
-        var text = text
-        if text.hasPrefix(prefix) { text = String(text.dropFirst(prefix.count)) }
-        if text.hasSuffix(suffix) { text = String(text.dropLast(suffix.count)) }
-        return text.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private static func stripCodeFence(_ text: String) -> String {
-        guard text.hasPrefix("```"), text.hasSuffix("```"), text.count > 6 else { return text }
-        var body = text.dropFirst(3).dropLast(3)
-        if let newline = body.firstIndex(of: "\n"), !body[..<newline].contains(" ") {
-            body = body[body.index(after: newline)...]
-        }
-        return body.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-}
-
 enum LLMError: LocalizedError {
-    case missingSystemPrompt
+    case missingSystemPrompt(String)
     case invalidModelID(String)
     case emptyOutput
 
     var errorDescription: String? {
         switch self {
-        case .missingSystemPrompt: "В приложении нет SystemPrompt.txt или ChatStyles.json."
+        case let .missingSystemPrompt(target): "В приложении нет системной инструкции SystemPrompt-\(target).txt."
         case let .invalidModelID(id): "Некорректный идентификатор модели: \(id)."
         case .emptyOutput: "Модель вернула пустой ответ."
         }
