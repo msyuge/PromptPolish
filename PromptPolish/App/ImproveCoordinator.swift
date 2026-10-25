@@ -42,7 +42,10 @@ final class ImproveCoordinator: ObservableObject {
         if !permission.isTrusted {
             permission.request()
         }
-        models.prepare()
+        // Модель грузится по первому ⌥⌘P, а не при запуске: на Mac с 8 ГБ иначе начинается своп.
+        if models.loadsAtLaunch {
+            models.prepare()
+        }
     }
 
     func improvePrompt() {
@@ -79,6 +82,7 @@ final class ImproveCoordinator: ObservableObject {
         preview.onCancel = { [weak self] in self?.finish() }
         preview.onAnswer = { [weak self] in self?.answerQuestions() }
 
+        models.beginUse()
         let builder = prompts.builder
         let idea = IdeaNormalizer.stripPromptRequest(captured.text)
         session = Session(
@@ -184,8 +188,10 @@ final class ImproveCoordinator: ObservableObject {
     }
 
     private func finish() {
-        session?.generation?.cancel()
-        session = nil
+        guard let session else { return }
+        session.generation?.cancel()
+        self.session = nil
         panel.close()
+        models.endUse()
     }
 }

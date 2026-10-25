@@ -97,6 +97,8 @@ Choose the model from the **Модель** (Model) submenu or in **Настро�
 
   Downloaded models go to the Hugging Face cache and work offline afterwards. Interrupted downloads resume where they stopped.
 
+The model is loaded into memory on the first ⌥⌘P and unloaded after 5 idle minutes, so it doesn't hold 2.5–3.4 GB while you're not using it. In **Настройки** (Settings) you can pick the delay (1 minute to 1 hour, or never) and turn on loading at launch; the menu also has **Выгрузить модель из памяти** (Unload model from memory).
+
 ### System instructions
 
 Each chat's system instruction can be edited in **Настройки → Системные инструкции** (Settings → System instructions):
@@ -114,7 +116,7 @@ The default instructions live in `PromptPolish/Resources/SystemPrompts/`.
 - **Speed.** On an M2 a response takes 7–30 seconds, a long prompt up to a minute. Loading the model at launch takes 2–4 seconds.
 - **Frequent clarifying questions.** The model often asks even when the idea is clear enough — a consequence of rule 4 in the general instruction.
 - **Small-model defects.** Occasionally the model produces a prompt that asks the chat to "write a prompt", copies its own instruction into the result, or breaks XML tags. PromptPolish detects this and asks the model to rewrite up to two times; if the defect remains, the offending lines are removed. Each correction adds 10–30 seconds.
-- **Memory.** Qwen3.5 4B takes about 3.4 GB and stays loaded while PromptPolish runs. Don't keep a model loaded in LM Studio or Ollama at the same time on an 8 GB Mac, or it will start swapping.
+- **Memory.** A loaded Qwen3.5 4B takes 2.5–3.4 GB. That's why the model isn't loaded at launch: it loads on the first ⌥⌘P (2–4 seconds from disk) and is unloaded after 5 idle minutes — both can be changed in Settings. Don't keep a model loaded in LM Studio or Ollama at the same time on an 8 GB Mac.
 - **Browsers and Electron apps** always get the text via ⌘V. If a site transforms pasted text (for example, renders markdown), that affects the result.
 - **Keyboard layouts.** Synthetic ⌘A/⌘C/⌘V use ANSI key codes. QWERTY and Russian layouts work; plain Dvorak doesn't, "Dvorak – QWERTY ⌘" does.
 - **Secure input.** Password fields are skipped. If another app has Secure Keyboard Entry on (for example, Terminal), macOS blocks synthetic key presses.

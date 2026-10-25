@@ -158,3 +158,26 @@ final class ModelCatalogTests: XCTestCase {
         XCTAssertEqual(ModelSpec.endOfTurnTokens(modelType: "llama"), [])
     }
 }
+
+final class ModelUnloadPolicyTests: XCTestCase {
+    private let lastUsed = Date(timeIntervalSince1970: 1_000_000)
+
+    func testUnloadsReadyModelAfterIdleDelay() {
+        XCTAssertTrue(ModelStore.shouldUnload(isReady: true, activeUses: 0, lastUsed: lastUsed, now: lastUsed + 300, delay: 300))
+        XCTAssertFalse(ModelStore.shouldUnload(isReady: true, activeUses: 0, lastUsed: lastUsed, now: lastUsed + 299, delay: 300))
+    }
+
+    func testNeverUnloadsDuringSessionOrWhenDisabled() {
+        XCTAssertFalse(ModelStore.shouldUnload(isReady: true, activeUses: 1, lastUsed: lastUsed, now: lastUsed + 9999, delay: 300))
+        XCTAssertFalse(ModelStore.shouldUnload(isReady: true, activeUses: 0, lastUsed: lastUsed, now: lastUsed + 9999, delay: 0))
+    }
+
+    func testNothingToUnloadWhenNotLoaded() {
+        XCTAssertFalse(ModelStore.shouldUnload(isReady: false, activeUses: 0, lastUsed: lastUsed, now: lastUsed + 9999, delay: 60))
+    }
+
+    func testDefaultDelayIsOneOfTheOptions() {
+        XCTAssertTrue(ModelStore.unloadDelayOptions.contains { $0.seconds == ModelStore.defaultUnloadDelay })
+        XCTAssertTrue(ModelStore.unloadDelayOptions.contains { $0.seconds == 0 })
+    }
+}

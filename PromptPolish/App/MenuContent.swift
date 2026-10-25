@@ -31,6 +31,9 @@ struct MenuContent: View {
         if case .failed = models.state {
             Button("Повторить загрузку модели") { models.prepare() }
         }
+        if models.state == .ready {
+            Button("Выгрузить модель из памяти") { models.unload() }
+        }
 
         Divider()
 

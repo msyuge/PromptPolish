@@ -3,8 +3,21 @@ import MLX
 import os
 
 /// Выбор модели и её состояние для интерфейса. Сам движок — actor `LLMEngine`; сюда приходят только события.
+///
+/// Модель занимает 1–4 ГБ, а на Mac с 8 ГБ это вытесняет остальные приложения в своп. Поэтому она
+/// загружается только по требованию (первый ⌥⌘P) и выгружается после простоя.
 @MainActor
 final class ModelStore: ObservableObject {
+    /// Через сколько секунд простоя выгружать модель; 0 — никогда.
+    nonisolated static let unloadDelayKey = "unloadModelAfterSeconds"
+    nonisolated static let loadAtLaunchKey = "loadModelAtLaunch"
+    nonisolated static let defaultUnloadDelay = 300
+    nonisolated static let unloadDelayOptions: [(seconds: Int, title: String)] = [
+        (60, "через 1 минуту"), (300, "через 5 минут"), (900, "через 15 минут"), (3600, "через 1 час"), (0, "никогда"),
+    ]
+    /// Освобождённые буферы MLX сверх этого объёма сразу возвращаются системе, а не копятся в кэше.
+    private static let mlxCacheLimit = 256 * 1024 * 1024
+
     enum State: Equatable {
         case idle
         case downloading(fraction: Double)
@@ -26,6 +39,10 @@ final class ModelStore: ObservableObject {
     private let defaults: UserDefaults
     private let logger = Logger(subsystem: "com.alekseimaksimov.promptpolish", category: "models")
     private let physicalMemory = ProcessInfo.processInfo.physicalMemory
+    /// Сколько сессий сейчас пользуются моделью: пока есть хотя бы одна, модель не выгружается.
+    private var activeUses = 0
+    private var lastUsed = Date()
+    private var idleTimer: Timer?
 
     init(locator: ModelLocator = .standard, defaults: UserDefaults = .standard) {
         self.locator = locator
@@ -40,7 +57,52 @@ final class ModelStore: ObservableObject {
         downloads = catalog.downloads
         current = choice
         engine = LLMEngine(spec: ModelSpec(for: choice))
+        defaults.register(defaults: [Self.unloadDelayKey: Self.defaultUnloadDelay, Self.loadAtLaunchKey: false])
+        Memory.cacheLimit = Self.mlxCacheLimit
         logCatalog()
+        idleTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.unloadIfIdle() }
+        }
+    }
+
+    var loadsAtLaunch: Bool { defaults.bool(forKey: Self.loadAtLaunchKey) }
+
+    /// Сессия улучшения начинает пользоваться моделью; если модель выгружена, она загружается.
+    func beginUse() {
+        activeUses += 1
+        lastUsed = .now
+        prepare()
+    }
+
+    /// Сессия закончилась: отсчёт простоя начинается заново, кэш буферов MLX отдаётся системе.
+    func endUse() {
+        activeUses = max(0, activeUses - 1)
+        lastUsed = .now
+        Memory.clearCache()
+    }
+
+    /// Освобождает память, занятую моделью. Следующий ⌥⌘P загрузит её снова (2–4 секунды с диска).
+    func unload() {
+        guard activeUses == 0 else { return }
+        switch state {
+        case .ready, .failed: break
+        case .idle, .downloading, .loading: return
+        }
+        engine = LLMEngine(spec: ModelSpec(for: current))
+        Memory.clearCache()
+        state = .idle
+        logger.notice("model unloaded: \(self.current.id, privacy: .public)")
+    }
+
+    private func unloadIfIdle() {
+        let delay = defaults.integer(forKey: Self.unloadDelayKey)
+        if Self.shouldUnload(isReady: state == .ready, activeUses: activeUses, lastUsed: lastUsed, now: .now, delay: delay) {
+            unload()
+        }
+    }
+
+    nonisolated static func shouldUnload(isReady: Bool, activeUses: Int, lastUsed: Date, now: Date, delay: Int) -> Bool {
+        isReady && activeUses == 0 && delay > 0 && now.timeIntervalSince(lastUsed) >= Double(delay)
     }
 
     private func logCatalog() {
@@ -74,6 +136,7 @@ final class ModelStore: ObservableObject {
         // Веса старой модели освобождаются вместе с её движком; кэш буферов MLX отдаём системе сразу.
         Memory.clearCache()
         state = .idle
+        lastUsed = .now
         prepare()
     }
 
@@ -120,7 +183,7 @@ final class ModelStore: ObservableObject {
 extension ModelStore.State {
     var statusText: String {
         switch self {
-        case .idle: "Модель не загружена"
+        case .idle: "Модель загрузится при ⌥⌘P"
         case let .downloading(fraction): "Скачивание модели: \(Int((fraction * 100).rounded()))%"
         case .loading: "Загрузка модели…"
         case .ready: "Модель готова"

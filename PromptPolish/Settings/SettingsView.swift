@@ -17,6 +17,8 @@ struct SettingsView: View {
     @ObservedObject var models: ModelStore
     @ObservedObject var prompts: SystemPromptStore
     @AppStorage(SettingsTab.storageKey) private var tab: SettingsTab = .general
+    @AppStorage(ModelStore.unloadDelayKey) private var unloadDelay = ModelStore.defaultUnloadDelay
+    @AppStorage(ModelStore.loadAtLaunchKey) private var loadAtLaunch = false
 
     var body: some View {
         TabView(selection: $tab) {
@@ -91,6 +93,15 @@ struct SettingsView: View {
                         .foregroundStyle(.red)
                         .textSelection(.enabled)
                 }
+                Picker("Выгружать из памяти", selection: $unloadDelay) {
+                    ForEach(ModelStore.unloadDelayOptions, id: \.seconds) { option in
+                        Text(option.title).tag(option.seconds)
+                    }
+                }
+                Toggle("Загружать модель при запуске", isOn: $loadAtLaunch)
+                Text("Загруженная модель занимает около \(models.current.sizeLabel) памяти. Без загрузки при запуске первый ⌥⌘P ждёт 2–4 секунды, пока модель читается с диска.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Text(models.current.locationDescription)
                     .font(.caption)
                     .foregroundStyle(.secondary)
