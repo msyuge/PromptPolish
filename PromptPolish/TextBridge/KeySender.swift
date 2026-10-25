@@ -1,6 +1,6 @@
 import CoreGraphics
 
-enum KeyShortcut: CaseIterable {
+enum KeyShortcut {
     case selectAll
     case copy
     case paste

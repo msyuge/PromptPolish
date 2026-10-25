@@ -40,8 +40,6 @@ final class PreviewPanelController {
 
     private var panel: PreviewPanel?
 
-    var isVisible: Bool { panel?.isVisible ?? false }
-
     func show(_ model: PreviewModel, models: ModelStore, anchor: CGRect?) {
         let panel = panel ?? PreviewPanel()
         panel.contentView = NSHostingView(rootView: PreviewView(model: model, models: models))

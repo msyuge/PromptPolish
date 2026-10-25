@@ -22,7 +22,8 @@ make generate   # xcodegen → PromptPolish.xcodeproj
 make build      # сборка Debug в build/DerivedData
 make test       # unit-тесты (без интеграционных)
 make integration # реальная генерация на модели, отчёт в build/integration-output.txt
-make run        # сборка, перезапуск приложения
+make run        # сборка, перезапуск приложения (Debug)
+make install    # Release в ~/Applications и запуск
 make clean
 ```
 
@@ -42,6 +43,10 @@ make clean
 - Первая сборка с MLX долгая (компиляция mlx и шейдеров) — запускать в фоне.
 
 - Логи: `/usr/bin/log show --last 30m --predicate 'subsystem == "local.promptpolish"' --info` — в zsh `log` перекрыт встроенной командой, нужен полный путь.
+
+## Документация
+- `README.md` — установка, разрешения, использование, известные ограничения.
+- `docs/phase2.md` — план фазы 2 (inline ghost-text подсказки) и прочие идеи.
 
 ## Ручные проверки
 Агент не может выдать разрешение Accessibility и нажать глобальный хоткей — такие шаги проверяет пользователь.

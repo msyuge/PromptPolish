@@ -61,8 +61,6 @@ actor LLMEngine {
         self.locator = locator
     }
 
-    var isLoaded: Bool { container != nil }
-
     /// Находит модель на диске (LM Studio, кэш Hugging Face) или скачивает её и загружает в память.
     func prepare(onEvent: @escaping @Sendable (LoadEvent) -> Void = { _ in }) async throws {
         _ = try await loadedContainer(onEvent: onEvent)
