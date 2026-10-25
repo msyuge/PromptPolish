@@ -7,7 +7,13 @@ import os
 final class ImproveCoordinator: ObservableObject {
     let permission = AccessibilityPermission()
 
+    private let textBridge: TextBridge
     private let logger = Logger(subsystem: "local.promptpolish", category: "coordinator")
+    private var currentTask: Task<Void, Never>?
+
+    init(textBridge: TextBridge = SystemTextBridge()) {
+        self.textBridge = textBridge
+    }
 
     func start() {
         KeyboardShortcuts.onKeyUp(for: .improvePrompt) { [weak self] in
@@ -23,7 +29,21 @@ final class ImproveCoordinator: ObservableObject {
             permission.request()
             return
         }
-        logger.info("improvePrompt triggered")
-        NSSound(named: "Tink")?.play()
+        guard currentTask == nil else { return }
+        currentTask = Task { [weak self] in
+            await self?.runBridgeCheck()
+            self?.currentTask = nil
+        }
+    }
+
+    /// Этап 3: проверка TextBridge без модели — текст заменяется на себя же с меткой.
+    private func runBridgeCheck() async {
+        do {
+            let captured = try await textBridge.capture()
+            try await textBridge.replace(captured, with: "[PromptPolish] " + captured.text)
+        } catch {
+            logger.error("bridge failed: \(error.localizedDescription, privacy: .public)")
+            NSSound.beep()
+        }
     }
 }
