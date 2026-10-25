@@ -14,6 +14,7 @@
 - Пользовательский буфер обмена всегда восстанавливается (все типы, все элементы), в том числе при ошибках.
 - LLM: `mlx-swift-lm` 3.x (MLXLLM/MLXLMCommon) + свои адаптеры к swift-huggingface (загрузчик) и swift-transformers (токенизатор), без макросов MLXHuggingFace (им нужно подтверждение доверия в Xcode). Выбор модели в меню и настройках (решение пользователя: только MLX, без Ollama/GGUF): `ModelLocator` сканирует MLX-модели в `~/.lmstudio/models`, `~/.cache/lm-studio/models` и кэше Hugging Face, `ModelCatalog` добавляет проверенные модели для скачивания с фильтром по памяти, `ModelStore` хранит выбор в UserDefaults и пересоздаёт `LLMEngine` при смене (старая модель выгружается, `Memory.clearCache()`). По умолчанию `mlx-community/Qwen3.5-4B-MLX-4bit` (у пользователя M2 с 8 ГБ, копия лежит в LM Studio); рассуждения Qwen отключены через `enable_thinking: false`.
 - Системные инструкции (решение пользователя): у каждого чата своя — `Resources/SystemPrompts/SystemPrompt-<chat>.txt`; `generic` — инструкция пользователя «Prompt Engineer AI» дословно, остальные — её адаптации под рекомендации разработчика чата. Модель выдаёт промт в блоке кода; утилита вставляет только содержимое блока. Уточняющие вопросы модель начинает с «ВОПРОСЫ:», пользователь отвечает в панели.
+- Системные инструкции редактируются в окне «Системные инструкции…» (`SystemPromptStore`, `SystemPromptsView`): правки пользователя лежат в `~/Library/Application Support/PromptPolish/SystemPrompts/SystemPrompt-<chat>.txt` поверх стандартных из бандла; пустая или совпадающая со стандартной правка удаляется. Сессия фиксирует инструкции на момент начала.
 - Этап 5 (решение пользователя): утилита сама определяет AI-чат (bundle ID приложения; в браузере — `AXURL` у `AXWebArea`) и берёт его системную инструкцию.
 
 ## Команды
@@ -34,6 +35,7 @@ make clean
 - `PromptPolish/LLM` — `LLMEngine` (actor, MLX), `PromptBuilder`, очистка ответа, адаптеры Hugging Face.
 - `PromptPolish/Chat` — `ChatTarget`: определение чата по bundle ID и URL страницы.
 - `PromptPolish/Preview` — плавающая NSPanel превью и её размещение.
+- `PromptPolish/Settings` — настройки и окно редактирования системных инструкций.
 - `PromptPolish/Resources` — Info.plist (генерируется XcodeGen), `SystemPrompts/` (инструкции под каждый чат).
 - `PromptPolishTests` — unit-тесты (хостятся в приложении).
 

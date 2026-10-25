@@ -10,6 +10,11 @@ struct PromptPolishApp: App {
         }
         .menuBarExtraStyle(.menu)
 
+        Window("Системные инструкции", id: SystemPromptsView.windowID) {
+            SystemPromptsView(store: appDelegate.coordinator.prompts)
+        }
+        .windowResizability(.contentMinSize)
+
         Settings {
             SettingsView(
                 permission: appDelegate.coordinator.permission,

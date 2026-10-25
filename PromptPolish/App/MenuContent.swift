@@ -5,6 +5,7 @@ struct MenuContent: View {
     @ObservedObject var permission: AccessibilityPermission
     @ObservedObject var models: ModelStore
     @Environment(\.openSettings) private var openSettings
+    @Environment(\.openWindow) private var openWindow
 
     init(coordinator: ImproveCoordinator) {
         self.coordinator = coordinator
@@ -33,6 +34,11 @@ struct MenuContent: View {
         }
 
         Divider()
+
+        Button("Системные инструкции…") {
+            NSApp.activate(ignoringOtherApps: true)
+            openWindow(id: SystemPromptsView.windowID)
+        }
 
         Button("Настройки…") {
             NSApp.activate(ignoringOtherApps: true)

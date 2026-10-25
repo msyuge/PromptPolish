@@ -7,10 +7,13 @@ import os
 final class ImproveCoordinator: ObservableObject {
     let permission = AccessibilityPermission()
     let models: ModelStore
+    let prompts: SystemPromptStore
 
     private struct Session {
         let captured: CapturedText
         let preview: PreviewModel
+        /// Инструкции на момент начала сессии: правки в редакторе не меняют уже идущий диалог.
+        let builder: PromptBuilder
         /// Диалог с моделью: растёт, когда пользователь отвечает на уточняющие вопросы.
         var turns: [ChatTurn]
         /// Мета-промпт исправляется автоматически не больше одного раза.
@@ -19,15 +22,14 @@ final class ImproveCoordinator: ObservableObject {
     }
 
     private let textBridge: TextBridge
-    private let builder: PromptBuilder
     private let panel = PreviewPanelController()
     private let logger = Logger(subsystem: "local.promptpolish", category: "coordinator")
     private var isCapturing = false
     private var session: Session?
 
-    init(textBridge: TextBridge = SystemTextBridge(), builder: PromptBuilder = .bundledOrFail(), models: ModelStore = ModelStore()) {
+    init(textBridge: TextBridge = SystemTextBridge(), prompts: SystemPromptStore = .bundled(), models: ModelStore = ModelStore()) {
         self.textBridge = textBridge
-        self.builder = builder
+        self.prompts = prompts
         self.models = models
     }
 
@@ -75,9 +77,11 @@ final class ImproveCoordinator: ObservableObject {
         preview.onCancel = { [weak self] in self?.finish() }
         preview.onAnswer = { [weak self] in self?.answerQuestions() }
 
+        let builder = prompts.builder
         session = Session(
             captured: captured,
             preview: preview,
+            builder: builder,
             turns: builder.messages(for: captured.text, target: target),
             correctedMetaPrompt: false
         )
@@ -113,7 +117,7 @@ final class ImproveCoordinator: ObservableObject {
                    MetaPromptDetector.isMetaPrompt(prompt, idea: session.captured.text) {
                     logger.notice("meta prompt detected, asking model to rewrite")
                     self.session?.correctedMetaPrompt = true
-                    self.session?.turns = builder.correctingMetaPrompt(turns, reply: raw)
+                    self.session?.turns = session.builder.correctingMetaPrompt(turns, reply: raw)
                     preview.apply(.prompt(""))
                     startGeneration()
                     return
@@ -131,7 +135,7 @@ final class ImproveCoordinator: ObservableObject {
     private func answerQuestions() {
         guard var session, session.preview.canSendAnswer,
               let questions = session.turns.last, questions.role == .assistant else { return }
-        session.turns = builder.followUp(Array(session.turns.dropLast()), questions: questions.content, answers: session.preview.answer)
+        session.turns = session.builder.followUp(Array(session.turns.dropLast()), questions: questions.content, answers: session.preview.answer)
         session.preview.answer = ""
         session.preview.apply(.prompt(""))
         self.session = session
