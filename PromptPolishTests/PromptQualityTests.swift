@@ -30,62 +30,91 @@ final class IdeaNormalizerTests: XCTestCase {
 
 final class PromptQualityTests: XCTestCase {
     private let claudeSystemPrompt = """
+    2. Всегда оформляй итоговый промпт в одно окно кода (markdown block ```).
     3. Claude лучше всего понимает разделы в XML-тегах. Собери промпт из таких разделов, в этом порядке.
     - <role> — конкретная экспертиза, нужная для этой задачи;
     - <context> — зачем нужна задача, для кого результат, что уже известно;
     - <output_format> — точная форма ответа: структура, длина, оформление.
-    Последний пункт «дай ссылки на источники».
+    5. Если для задачи нужен текст, документ или код пользователя, добавь в начало промпта тег <document></document>, в который пользователь вставит материал.
+    Последний пункт «дай ссылки на источники в одном списке».
     """
+
+    /// Реальный ответ модели, который прошёл прошлую проверку: пересказ правил, мета-просьба и сломанные теги.
+    private let realDefectivePrompt = """
+    <role>
+    > Специалист по внедрению и настройке системных инструкций.
+    <context>
+    Задача пользователя: Перенести системные инструкции в настройки.
+    </instructions>
+    <constraints>
+    - <user_input> : Собрать промпт в одно окно кода (markdown block ```).
+    - <document> : Если требуется текст, документ или код, добавить в начало промпта тег <document></document>, в который пользователь вставит материал.
+    </task>
+    <output_format>
+    Напиши промпт для этого случая:
+    </output_format>
+    """
+
+    func testCatchesParaphrasedRulesMetaRequestAndBrokenTagsInRealOutput() {
+        let issues = PromptQuality.issues(in: realDefectivePrompt, idea: "Перенести системные инструкции в настройки", systemPrompt: claudeSystemPrompt)
+
+        XCTAssertTrue(issues.contains(.metaTask))
+        guard case let .templateEcho(echoed)? = issues.first(where: { if case .templateEcho = $0 { true } else { false } }) else {
+            return XCTFail("Пересказ правил не найден: \(issues)")
+        }
+        XCTAssertTrue(echoed.contains { $0.contains("в одно окно кода markdown block") })
+        XCTAssertTrue(echoed.contains { $0.contains("в начало промпта тег") && $0.contains("пользователь вставит материал") })
+        guard case let .brokenTags(tags)? = issues.first(where: { if case .brokenTags = $0 { true } else { false } }) else {
+            return XCTFail("Сломанные теги не найдены: \(issues)")
+        }
+        XCTAssertTrue(tags.contains("role"))
+        XCTAssertTrue(tags.contains("instructions"))
+        XCTAssertTrue(tags.contains("task"))
+    }
 
     func testDetectsCopiedSectionDescriptions() {
         let prompt = """
         <role>Конкретная экспертиза, нужная для этой задачи.</role>
-        <context>Зачем нужна задача, для кого результат, что уже известно.</context>
         <task>Добавь в утилиту меню «Системные инструкции».</task>
         """
 
         let echoed = PromptQuality.echoedFragments(in: prompt, systemPrompt: claudeSystemPrompt)
 
-        XCTAssertTrue(echoed.contains("конкретная экспертиза, нужная для этой задачи"))
-        XCTAssertTrue(echoed.contains("зачем нужна задача, для кого результат, что уже известно"))
-        XCTAssertEqual(
-            PromptQuality.issues(in: prompt, idea: "добавь меню", systemPrompt: claudeSystemPrompt),
-            [.templateEcho(echoed)]
-        )
+        XCTAssertEqual(echoed, ["конкретная экспертиза нужная для этой задачи"])
     }
 
     func testFilledPromptIsClean() {
         let prompt = """
         <role>Senior macOS-разработчик, SwiftUI и AppKit.</role>
-        <context>Утилита в строке меню улучшает промпты; нужен редактор инструкций.</context>
-        <task>Добавь пункт меню «Системные инструкции» с окном редактирования.</task>
+        <context>Утилита в строке меню улучшает промпты; нужен редактор инструкций в настройках.</context>
+        <task>Перенеси редактор системных инструкций из отдельного окна во вкладку настроек.</task>
+        <output_format>Код изменённых файлов и короткое пояснение.</output_format>
         """
-        XCTAssertEqual(PromptQuality.issues(in: prompt, idea: "добавь меню инструкций", systemPrompt: claudeSystemPrompt), [])
+        XCTAssertEqual(PromptQuality.issues(in: prompt, idea: "перенеси системные инструкции в настройки", systemPrompt: claudeSystemPrompt), [])
     }
 
-    func testQuotedPhrasesAreAllowed() {
-        XCTAssertEqual(PromptQuality.echoedFragments(in: "Учти:\n- дай ссылки на источники.", systemPrompt: claudeSystemPrompt), [])
+    func testQuotedPhrasesAndIdeaWordsAreAllowed() {
+        XCTAssertEqual(PromptQuality.echoedFragments(in: "Учти:\n- дай ссылки на источники в одном списке.", systemPrompt: claudeSystemPrompt), [])
+        let idea = "нужна точная форма ответа структура длина оформление для отчёта"
+        XCTAssertEqual(PromptQuality.echoedFragments(in: "Точная форма ответа: структура, длина, оформление.", systemPrompt: claudeSystemPrompt, idea: idea), [])
     }
 
-    func testDetectsMetaTaskTogetherWithEcho() {
-        let prompt = "<task>Написать промпт для ассистента, чтобы он добавил меню.</task>\n<role>Конкретная экспертиза, нужная для этой задачи.</role>"
-
-        let issues = PromptQuality.issues(in: prompt, idea: "Добавить меню", systemPrompt: claudeSystemPrompt)
-
-        XCTAssertEqual(issues.first, .metaTask)
-        XCTAssertEqual(issues.count, 2)
+    func testCodeAndDocumentTagsAreBalancedChecks() {
+        XCTAssertEqual(PromptQuality.brokenTags(in: "<document>\n</document>\n<task>Сделай.</task>"), [])
+        XCTAssertEqual(PromptQuality.brokenTags(in: "<task>Объясни код:\n```html\n<div>\n```\n</task>"), [])
+        XCTAssertEqual(PromptQuality.brokenTags(in: "<task>Сделай.\n<role>Эксперт.</role>"), ["task"])
     }
 
-    func testRemovingEchoDropsCopiedLinesAndEmptyTags() {
+    func testRemovingDefectsDropsEchoAndMetaLines() {
         let prompt = """
         <role>Конкретная экспертиза, нужная для этой задачи.</role>
         <task>Добавь в утилиту меню «Системные инструкции».</task>
         <output_format>
-        Точная форма ответа: структура, длина, оформление.
+        Напиши промпт для этого случая:
         </output_format>
         """
 
-        let cleaned = PromptQuality.removingEcho(from: prompt, systemPrompt: claudeSystemPrompt)
+        let cleaned = PromptQuality.removingDefects(from: prompt, systemPrompt: claudeSystemPrompt, idea: "добавь меню")
 
         XCTAssertEqual(cleaned, "<task>Добавь в утилиту меню «Системные инструкции».</task>")
     }
@@ -94,11 +123,12 @@ final class PromptQualityTests: XCTestCase {
         let builder = PromptBuilder(systemPrompt: "S")
         let history = builder.messages(for: "идея")
 
-        let next = builder.correcting(history, reply: "ответ", issues: [.metaTask, .templateEcho(["зачем нужна задача, для кого результат"])])
+        let next = builder.correcting(history, reply: "ответ", issues: [.metaTask, .templateEcho(["зачем нужна задача для кого результат"]), .brokenTags(["role"])])
 
         XCTAssertEqual(next[2], ChatTurn(role: .assistant, content: "ответ"))
         XCTAssertTrue(next[3].content.contains("просит написать промпт"))
-        XCTAssertTrue(next[3].content.contains("«зачем нужна задача, для кого результат»"))
+        XCTAssertTrue(next[3].content.contains("«зачем нужна задача для кого результат»"))
+        XCTAssertTrue(next[3].content.contains("<role>"))
     }
 
     func testBundledChatPromptsHaveNoCopyableSkeleton() throws {

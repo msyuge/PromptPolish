@@ -16,6 +16,7 @@ final class LLMIntegrationTests: XCTestCase {
         ("summarize this article for my boss", .mistral),
         ("сделай план", .generic),
         ("сделай промпт для ассистента, чтобы он добавил в мою macOS-утилиту меню «Системные инструкции» с редактированием", .claude),
+        ("Перенести системные инструкции в настройки", .claude),
     ]
 
     /// Правдоподобные ответы на уточняющие вопросы для каждой идеи.
@@ -24,6 +25,7 @@ final class LLMIntegrationTests: XCTestCase {
         "объясни что такое замыкания в swift новичку": "Новичок знает основы Swift: переменные, функции, циклы.",
         "какие новости про apple vision pro": "За последний месяц, официальные источники и крупные техсайты.",
         "summarize this article for my boss": "The boss is a CTO, wants 5 bullet points, the article text will be pasted after the prompt.",
+        "Перенести системные инструкции в настройки": "Это моя macOS-утилита на SwiftUI: редактор системных инструкций сейчас в отдельном окне, его нужно перенести во вкладку окна настроек.",
         "сравни тарифы мобильных операторов в россии": "МТС, Билайн, МегаФон, Т2; тарифы до 800 рублей; интернет и звонки.",
         "найди ошибку в алгоритме сортировки пузырьком на python": "Код вставлю после промпта, ошибка в том, что список сортируется не полностью.",
         "что сейчас обсуждают про spacex": "За последнюю неделю, главное про Starship.",
@@ -67,21 +69,21 @@ final class LLMIntegrationTests: XCTestCase {
                 report += "--- после ответов:\n" + describe(last)
                 XCTAssertEqual(last.reply.isPrompt, true, "После ответов модель снова спросила: \(rawIdea)")
             }
-            if case let .prompt(text) = last.reply {
+            for _ in 0..<PromptQuality.maxCorrections {
+                guard case let .prompt(text) = last.reply else { break }
                 let issues = PromptQuality.issues(in: text, idea: idea, systemPrompt: systemPrompt)
-                if !issues.isEmpty {
-                    report += "--- дефекты \(issues), исправление:\n"
-                    turns = builder.correcting(turns, reply: last.raw, issues: issues)
-                    last = try await run(engine, turns)
-                    report += describe(last)
-                }
+                guard !issues.isEmpty else { break }
+                report += "--- дефекты \(issues), исправление:\n"
+                turns = builder.correcting(turns, reply: last.raw, issues: issues)
+                last = try await run(engine, turns)
+                report += describe(last)
             }
             if case let .prompt(text) = last.reply {
                 let remaining = PromptQuality.issues(in: text, idea: idea, systemPrompt: systemPrompt)
-                XCTAssertFalse(remaining.contains(.metaTask), "Мета-промпт для «\(rawIdea)» [\(target.rawValue)]")
-                let cleaned = PromptQuality.removingEcho(from: text, systemPrompt: systemPrompt)
-                XCTAssertTrue(PromptQuality.echoedFragments(in: cleaned, systemPrompt: systemPrompt).isEmpty, "Копия каркаса для «\(rawIdea)»")
-                if !remaining.isEmpty { report += "--- осталось после исправления: \(remaining)\n" }
+                if !remaining.isEmpty { report += "--- осталось после исправлений: \(remaining)\n" }
+                let final = remaining.isEmpty ? text : PromptQuality.removingDefects(from: text, systemPrompt: systemPrompt, idea: idea)
+                XCTAssertFalse(MetaPromptDetector.isMetaPrompt(final, idea: idea), "Мета-промпт для «\(rawIdea)» [\(target.rawValue)]")
+                XCTAssertTrue(PromptQuality.echoedFragments(in: final, systemPrompt: systemPrompt, idea: idea).isEmpty, "Пересказ инструкции для «\(rawIdea)»")
             }
         }
 

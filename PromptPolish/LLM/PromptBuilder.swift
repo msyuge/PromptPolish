@@ -95,7 +95,10 @@ struct PromptBuilder: Sendable {
                 problems.append("- промпт просит написать промпт, а должен просить ассистента сразу выполнить мою задачу;")
             case let .templateEcho(fragments):
                 let examples = fragments.prefix(3).map { "«\($0)»" }.joined(separator: ", ")
-                problems.append("- в промпт переписаны описания разделов из твоей инструкции (\(examples)) — замени их конкретным содержанием моей задачи;")
+                problems.append("- в промпт переписаны правила или описания разделов из твоей инструкции (\(examples)) — убери их и напиши конкретное содержание моей задачи;")
+            case let .brokenTags(tags):
+                let names = tags.map { "<\($0)>" }.joined(separator: ", ")
+                problems.append("- теги \(names) не закрыты или закрыты без открытия — каждый раздел должен быть в паре тегов, например <role>…</role>;")
             }
         }
         let content = (["Исправь промпт:"] + problems + ["Сохрани структуру и язык, выдай промпт в блоке кода, без вопросов."])

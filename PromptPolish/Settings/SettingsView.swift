@@ -1,11 +1,32 @@
 import KeyboardShortcuts
 import SwiftUI
 
+/// Вкладки окна настроек; выбранная хранится в UserDefaults, чтобы пункт меню мог открыть нужную.
+enum SettingsTab: String {
+    case general
+    case instructions
+
+    static let storageKey = "settingsTab"
+}
+
 struct SettingsView: View {
     @ObservedObject var permission: AccessibilityPermission
     @ObservedObject var models: ModelStore
+    @ObservedObject var prompts: SystemPromptStore
+    @AppStorage(SettingsTab.storageKey) private var tab: SettingsTab = .general
 
     var body: some View {
+        TabView(selection: $tab) {
+            general
+                .tabItem { Label("Основные", systemImage: "gearshape") }
+                .tag(SettingsTab.general)
+            SystemPromptsView(store: prompts)
+                .tabItem { Label("Системные инструкции", systemImage: "text.alignleft") }
+                .tag(SettingsTab.instructions)
+        }
+    }
+
+    private var general: some View {
         Form {
             Section("Горячая клавиша") {
                 KeyboardShortcuts.Recorder("Улучшить промт:", name: .improvePrompt)

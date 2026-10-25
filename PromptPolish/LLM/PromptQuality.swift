@@ -25,66 +25,132 @@ enum IdeaNormalizer {
     }
 }
 
-/// Дефекты готового промпта, которые исправляются одним повторным запросом к модели.
+/// Дефекты готового промпта, которые исправляются повторным запросом к модели.
 enum PromptIssue: Equatable {
     /// Промпт просит чат написать промпт вместо того, чтобы поставить ему задачу.
     case metaTask
-    /// В промпт переписаны фразы из системной инструкции (описания разделов и правила).
+    /// В промпт переписаны или пересказаны фразы из системной инструкции (описания разделов и правила).
     case templateEcho([String])
+    /// XML-теги разделов не закрыты или закрыты без открытия.
+    case brokenTags([String])
 }
 
 enum PromptQuality {
+    /// Сколько раз подряд модель просят исправить один и тот же промпт.
+    static let maxCorrections = 2
+
+    /// Совпадение по стольким словам подряд с инструкцией не бывает случайным:
+    /// модель переписала или пересказала её вместо того, чтобы заполнить разделы содержанием.
+    private static let shingleLength = 5
+
     static func issues(in prompt: String, idea: String, systemPrompt: String) -> [PromptIssue] {
         var issues: [PromptIssue] = []
         if MetaPromptDetector.isMetaPrompt(prompt, idea: idea) {
             issues.append(.metaTask)
         }
-        let echoed = echoedFragments(in: prompt, systemPrompt: systemPrompt)
+        let echoed = echoedFragments(in: prompt, systemPrompt: systemPrompt, idea: idea)
         if !echoed.isEmpty {
             issues.append(.templateEcho(echoed))
+        }
+        let broken = brokenTags(in: prompt)
+        if !broken.isEmpty {
+            issues.append(.brokenTags(broken))
         }
         return issues
     }
 
-    /// Фразы системной инструкции (не короче 4 слов), которые дословно встречаются в промпте.
-    /// Совпадение такой длины не бывает случайным: модель переписала описание вместо содержания.
-    static func echoedFragments(in prompt: String, systemPrompt: String) -> [String] {
-        let normalizedPrompt = normalize(prompt)
-        return fragments(of: systemPrompt).filter { normalizedPrompt.contains(normalize($0)) }
+    /// Куски промпта, совпадающие с инструкцией по 5 и более словам подряд (после нормализации).
+    static func echoedFragments(in prompt: String, systemPrompt: String, idea: String = "") -> [String] {
+        let tokens = tokenize(prompt)
+        let marked = echoMarks(tokens.map(\.word), systemPrompt: systemPrompt, idea: idea)
+        var runs: [String] = []
+        var current: [String] = []
+        for (index, token) in tokens.enumerated() {
+            if marked[index] {
+                current.append(token.word)
+            } else if !current.isEmpty {
+                runs.append(current.joined(separator: " "))
+                current = []
+            }
+        }
+        if !current.isEmpty { runs.append(current.joined(separator: " ")) }
+        return runs
     }
 
-    /// Последняя мера, если модель повторила копирование и после исправления: строки,
-    /// которые почти целиком состоят из фраз инструкции, удаляются вместе с опустевшими тегами.
-    static func removingEcho(from prompt: String, systemPrompt: String) -> String {
-        let fragments = fragments(of: systemPrompt).map(normalize)
+    /// Теги разделов (`<role>`, `<task>`…), у которых не сходятся открытие и закрытие. Код в ``` не проверяется.
+    static func brokenTags(in prompt: String) -> [String] {
+        var depth: [String: Int] = [:]
+        var broken: Set<String> = []
+        var inCode = false
+        for line in prompt.components(separatedBy: "\n") {
+            if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+                inCode.toggle()
+                continue
+            }
+            guard !inCode else { continue }
+            let regex = try! NSRegularExpression(pattern: #"<(/?)([a-z_]+)>"#)
+            for match in regex.matches(in: line, range: NSRange(line.startIndex..., in: line)) {
+                guard let slash = Range(match.range(at: 1), in: line), let name = Range(match.range(at: 2), in: line) else { continue }
+                let tag = String(line[name])
+                if line[slash].isEmpty {
+                    depth[tag, default: 0] += 1
+                } else if depth[tag, default: 0] > 0 {
+                    depth[tag, default: 0] -= 1
+                } else {
+                    broken.insert(tag)
+                }
+            }
+        }
+        broken.formUnion(depth.filter { $0.value != 0 }.map(\.key))
+        return broken.sorted()
+    }
+
+    /// Последняя мера, если дефекты остались и после исправлений: удаляются строки,
+    /// которые больше чем наполовину пересказывают инструкцию или просят написать промпт.
+    static func removingDefects(from prompt: String, systemPrompt: String, idea: String) -> String {
         let lines = prompt.components(separatedBy: "\n").filter { line in
-            let content = normalize(strippingMarkup(line))
-            guard !content.isEmpty else { return true }
-            let echoedLength = fragments.filter { content.contains($0) }.map(\.count).reduce(0, +)
-            return Double(echoedLength) < Double(content.count) * 0.6
+            if MetaPromptDetector.isMetaPrompt(line, idea: idea) { return false }
+            let words = tokenize(line).map(\.word)
+            guard !words.isEmpty else { return true }
+            let marked = echoMarks(words, systemPrompt: systemPrompt, idea: idea).filter { $0 }.count
+            return Double(marked) < Double(words.count) * 0.5
         }
         return removingEmptyTags(lines.joined(separator: "\n")).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Отмечает слова, входящие в любую последовательность из 5 слов, которая есть в инструкции.
     /// Фразы в «ёлочках» инструкция велит воспроизвести (например, «дай ссылки на источники»),
-    /// поэтому они не считаются копированием.
-    private static func fragments(of systemPrompt: String) -> [String] {
-        systemPrompt
-            .replacingOccurrences(of: #"«[^»]*»"#, with: "\n", options: .regularExpression)
-            .components(separatedBy: CharacterSet(charactersIn: "\n.;!?—\""))
-            .map { strippingMarkup($0).trimmingCharacters(in: CharacterSet(charactersIn: " ,-*()").union(.whitespaces)) }
-            .filter { $0.split(separator: " ").count >= 4 && $0.count >= 20 }
+    /// а слова из идеи пользователя — его собственные, поэтому они не считаются копированием.
+    private static func echoMarks(_ words: [String], systemPrompt: String, idea: String) -> [Bool] {
+        let source = systemPrompt.replacingOccurrences(of: #"«[^»]*»"#, with: " | ", options: .regularExpression)
+        let instruction = shingles(of: tokenize(source).map(\.word))
+        let own = shingles(of: tokenize(idea).map(\.word))
+        var marked = Array(repeating: false, count: words.count)
+        guard words.count >= shingleLength else { return marked }
+        for start in 0...(words.count - shingleLength) {
+            let shingle = words[start..<(start + shingleLength)].joined(separator: " ")
+            if instruction.contains(shingle), !own.contains(shingle) {
+                for index in start..<(start + shingleLength) { marked[index] = true }
+            }
+        }
+        return marked
     }
 
-    private static func strippingMarkup(_ text: String) -> String {
-        text.replacingOccurrences(of: #"</?[a-z_]+>|^\s*[-*•#\d.)]+\s*|\*\*"#, with: " ", options: .regularExpression)
+    private static func shingles(of words: [String]) -> Set<String> {
+        guard words.count >= shingleLength else { return [] }
+        return Set((0...(words.count - shingleLength)).map { words[$0..<($0 + shingleLength)].joined(separator: " ") })
     }
 
-    private static func normalize(_ text: String) -> String {
-        text.lowercased()
-            .replacingOccurrences(of: "ё", with: "е")
-            .replacingOccurrences(of: #"[\s,]+"#, with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespaces)
+    /// Слова текста без разметки: теги, знаки и регистр не важны, «ё» равно «е».
+    private static func tokenize(_ text: String) -> [(word: String, line: Int)] {
+        text.components(separatedBy: "\n").enumerated().flatMap { index, line in
+            line.replacingOccurrences(of: #"</?[a-z_]+>"#, with: " ", options: .regularExpression)
+                .lowercased()
+                .replacingOccurrences(of: "ё", with: "е")
+                .components(separatedBy: CharacterSet.alphanumerics.inverted)
+                .filter { !$0.isEmpty }
+                .map { (word: $0, line: index) }
+        }
     }
 
     private static func removingEmptyTags(_ text: String) -> String {

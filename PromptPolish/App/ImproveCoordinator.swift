@@ -18,8 +18,8 @@ final class ImproveCoordinator: ObservableObject {
         var turns: [ChatTurn]
         /// Идея без обращения к утилите («сделай промпт для…»).
         let idea: String
-        /// Дефекты промпта исправляются автоматически не больше одного раза.
-        var corrected: Bool
+        /// Сколько раз модель уже просили исправить дефекты промпта.
+        var corrections: Int
         var generation: Task<Void, Never>?
     }
 
@@ -87,7 +87,7 @@ final class ImproveCoordinator: ObservableObject {
             builder: builder,
             turns: builder.messages(for: idea, target: target),
             idea: idea,
-            corrected: false
+            corrections: 0
         )
         panel.show(preview, models: models, anchor: captured.anchor)
         startGeneration()
@@ -120,18 +120,21 @@ final class ImproveCoordinator: ObservableObject {
                 guard let session else { return }
                 let systemPrompt = turns.first?.content ?? ""
                 let issues = PromptQuality.issues(in: prompt, idea: session.idea, systemPrompt: systemPrompt)
-                if !issues.isEmpty, !session.corrected {
+                if !issues.isEmpty, session.corrections < PromptQuality.maxCorrections {
                     logger.notice("prompt issues \(String(describing: issues), privacy: .public), asking model to rewrite")
-                    self.session?.corrected = true
+                    self.session?.corrections += 1
                     self.session?.turns = session.builder.correcting(turns, reply: raw, issues: issues)
                     preview.apply(.prompt(""))
                     startGeneration()
                     return
                 }
-                // Если модель повторила копирование и после исправления, скопированные строки вырезаются.
-                let final = issues.contains { if case .templateEcho = $0 { true } else { false } }
-                    ? PromptQuality.removingEcho(from: prompt, systemPrompt: systemPrompt)
-                    : prompt
+                // Если дефекты остались и после исправлений, строки с ними вырезаются.
+                if !issues.isEmpty {
+                    logger.notice("prompt issues remain after corrections \(String(describing: issues), privacy: .public)")
+                }
+                let final = issues.isEmpty
+                    ? prompt
+                    : PromptQuality.removingDefects(from: prompt, systemPrompt: systemPrompt, idea: session.idea)
                 preview.apply(.prompt(final))
                 preview.phase = final.isEmpty ? .failed(LLMError.emptyOutput.localizedDescription) : .ready
             }

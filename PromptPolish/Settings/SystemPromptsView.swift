@@ -1,17 +1,15 @@
 import SwiftUI
 
-/// Окно «Системные инструкции»: список чатов слева, редактор инструкции выбранного чата справа.
+/// Вкладка настроек «Системные инструкции»: список чатов слева, редактор инструкции выбранного чата справа.
 /// Несохранённые правки хранятся отдельно для каждого чата, пока окно открыто.
 struct SystemPromptsView: View {
-    static let windowID = "system-prompts"
-
     @ObservedObject var store: SystemPromptStore
     @State private var selection: ChatTarget = .generic
     @State private var drafts: [ChatTarget: String] = [:]
     @State private var errorMessage: String?
 
     var body: some View {
-        NavigationSplitView {
+        HStack(spacing: 0) {
             List(ChatTarget.allCases, id: \.self, selection: $selection) { target in
                 HStack {
                     Text(target.instructionsTitle)
@@ -28,11 +26,12 @@ struct SystemPromptsView: View {
                     }
                 }
             }
-            .navigationSplitViewColumnWidth(min: 170, ideal: 190)
-        } detail: {
+            .listStyle(.sidebar)
+            .frame(width: 190)
+            Divider()
             editor(for: selection)
         }
-        .frame(minWidth: 760, minHeight: 520)
+        .frame(width: 780, height: 540)
         .onAppear { store.reload() }
     }
 
