@@ -6,6 +6,7 @@ import XCTest
 final class LLMIntegrationTests: XCTestCase {
     private static let samples: [(String, ChatTarget)] = [
         ("напиши пост про кофе", .generic),
+        ("сделай резюме этой статьи для начальника", .generic),
         ("объясни что такое замыкания в swift", .claude),
         ("объясни что такое замыкания в swift", .chatGPT),
         ("какие новости про apple vision pro", .perplexity),
@@ -31,12 +32,16 @@ final class LLMIntegrationTests: XCTestCase {
                 raw += chunk
                 chunks += 1
             }
-            let cleaned = ModelOutputCleaner.clean(raw)
-            report += "\n=== [\(target.rawValue)] \(prompt)\n\(cleaned)\n--- чанков: \(chunks), время: \(ContinuousClock.now - start)\n"
+            let cleaned = ModelOutputCleaner.clean(raw, languageCode: PromptBuilder.languageCode(of: prompt))
+            let hadPlaceholders = ModelOutputCleaner.removePlaceholders(from: raw) != raw
+            let structured = ["Задача:", "Task:", "Вопрос:", "Question:"].contains { cleaned.contains($0) }
+            report += "\n=== [\(target.rawValue)] \(prompt)\n\(cleaned)\n"
+            report += "--- чанков: \(chunks), время: \(ContinuousClock.now - start), структура: \(structured), заглушки вычищены: \(hadPlaceholders)\n"
 
             XCTAssertGreaterThan(chunks, 1, "Ожидался стриминг несколькими кусками")
             XCTAssertFalse(cleaned.isEmpty)
             XCTAssertFalse(cleaned.contains("<prompt>"))
+            XCTAssertTrue(structured, "Нет раздела «Задача»/«Вопрос»")
         }
 
         let output = URL(fileURLWithPath: #filePath)

@@ -67,6 +67,11 @@ struct PromptBuilder: Sendable {
         return Locale(identifier: "en").localizedString(forLanguageCode: language.rawValue) ?? fallback
     }
 
+    /// Код языка промта (например, "ru") для постобработки ответа.
+    static func languageCode(of text: String) -> String? {
+        detectLanguage(of: text)?.rawValue
+    }
+
     /// На коротких русских фразах NLLanguageRecognizer часто выбирает украинский, болгарский или казахский.
     /// Неуверенный ответ для кириллицы без украинских букв считается русским.
     private static func detectLanguage(of text: String) -> NLLanguage? {
@@ -91,7 +96,54 @@ enum ModelOutputCleaner {
         "improved prompt:", "rewritten prompt:", "output:",
     ]
 
-    static func clean(_ raw: String) -> String {
+    /// Названия разделов, которые модель берёт из английских подсказок, в русском промте заменяются на русские.
+    private static let russianSections: [(String, String)] = [
+        ("Answer format", "Формат ответа"), ("Requirements", "Требования"), ("Constraints", "Ограничения"),
+        ("Context", "Контекст"), ("Question", "Вопрос"), ("Task", "Задача"), ("Role", "Роль"),
+    ]
+    private static let sectionNames = Set(russianSections.flatMap { [$0.0, $0.1] })
+
+    static func clean(_ raw: String, languageCode: String? = nil) -> String {
+        normalizeStructure(cleanWrapping(raw), russian: languageCode == "ru")
+    }
+
+    /// Выравнивает структуру: `Раздел: текст`, пункты `- текст`, без пустых строк (кроме блоков кода).
+    static func normalizeStructure(_ text: String, russian: Bool) -> String {
+        var inCode = false
+        var lines: [String] = []
+        for line in text.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("```") {
+                inCode.toggle()
+                lines.append(line)
+                continue
+            }
+            if inCode {
+                lines.append(line)
+                continue
+            }
+            if trimmed.isEmpty { continue }
+            lines.append(normalizeLine(trimmed, russian: russian))
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private static func normalizeLine(_ line: String, russian: Bool) -> String {
+        if let marker = line.first, "-•*".contains(marker), line.count > 1,
+           !line.hasPrefix("**"), !line.hasPrefix("--") {
+            return "- " + line.dropFirst().trimmingCharacters(in: .whitespaces)
+        }
+        guard let colon = line.firstIndex(of: ":") else { return line }
+        var name = String(line[..<colon]).trimmingCharacters(in: .whitespaces)
+        guard sectionNames.contains(where: { $0.caseInsensitiveCompare(name) == .orderedSame }) else { return line }
+        if russian, let pair = russianSections.first(where: { $0.0.caseInsensitiveCompare(name) == .orderedSame }) {
+            name = pair.1
+        }
+        let rest = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+        return rest.isEmpty ? "\(name):" : "\(name): \(rest)"
+    }
+
+    private static func cleanWrapping(_ raw: String) -> String {
         var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         text = strip(text, prefix: "<prompt>", suffix: "</prompt>")
         text = stripCodeFence(text)
@@ -107,7 +159,43 @@ enum ModelOutputCleaner {
                 text = String(text.dropFirst().dropLast())
             }
         }
-        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return removePlaceholders(from: text).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Заглушки вида «[укажи аудиторию]» запрещены промтом, но маленькая модель иногда их добавляет.
+    /// Совпадает только текст в скобках, начинающийся со строчной буквы, не прилегающий к идентификатору
+    /// и без `:`/`=`/кавычек — так не задеваются `array[index]`, `[String: Int]`, `[1, 2]`. Код в ``` не трогается.
+    private static let placeholder = try! NSRegularExpression(
+        pattern: #"(?<![\w\])])\s?\[(?=[a-zа-яё])[^\[\]\n`:="]{2,80}\]"#
+    )
+
+    static func removePlaceholders(from text: String) -> String {
+        var inCode = false
+        var lines: [String] = []
+        for line in text.components(separatedBy: "\n") {
+            if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+                inCode.toggle()
+                lines.append(line)
+                continue
+            }
+            guard !inCode else {
+                lines.append(line)
+                continue
+            }
+            let range = NSRange(line.startIndex..., in: line)
+            guard placeholder.firstMatch(in: line, range: range) != nil else {
+                lines.append(line)
+                continue
+            }
+            let isBullet = line.trimmingCharacters(in: .whitespaces).hasPrefix("- ")
+            var cleaned = placeholder.stringByReplacingMatches(in: line, range: range, withTemplate: "")
+            cleaned = cleaned.replacingOccurrences(of: #"\s+([.,;:!?])"#, with: "$1", options: .regularExpression)
+            let meaningful = cleaned.trimmingCharacters(in: CharacterSet(charactersIn: "-•*:;,. ").union(.whitespaces))
+            // Пункт списка, который держался на заглушке, бессмысленен без неё.
+            if isBullet || meaningful.isEmpty { continue }
+            lines.append(cleaned)
+        }
+        return lines.joined(separator: "\n")
     }
 
     private static func strip(_ text: String, prefix: String, suffix: String) -> String {

@@ -31,7 +31,7 @@ actor LLMEngine {
 
     nonisolated let spec: ModelSpec
     private let builder: PromptBuilder
-    private let parameters = GenerateParameters(maxTokens: 1024, temperature: 0.3, topP: 0.9, repetitionPenalty: 1.05)
+    private let parameters = GenerateParameters(maxTokens: 1024, temperature: 0.2, topP: 0.9)
 
     private var container: ModelContainer?
     private var loadTask: Task<ModelContainer, Error>?

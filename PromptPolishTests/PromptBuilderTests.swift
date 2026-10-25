@@ -103,4 +103,61 @@ final class ModelOutputCleanerTests: XCTestCase {
         let text = "Объясни код:\n```swift\nlet x = 1\n```"
         XCTAssertEqual(ModelOutputCleaner.clean(text), text)
     }
+
+    func testRemovesPlaceholderLinesAndBullets() {
+        let raw = """
+        Задача: напиши пост про кофе.
+        Требования:
+        - аудитория: [укажи аудиторию];
+        - объём 800–1000 знаков.
+        [вставь текст статьи]
+        """
+        XCTAssertEqual(ModelOutputCleaner.clean(raw), "Задача: напиши пост про кофе.\nТребования:\n- объём 800–1000 знаков.")
+    }
+
+    func testRemovesInlinePlaceholderInSentence() {
+        XCTAssertEqual(
+            ModelOutputCleaner.clean("Context: I am applying for a job at [company name]."),
+            "Context: I am applying for a job at."
+        )
+    }
+
+    func testKeepsCodeLikeBrackets() {
+        let text = "Задача: объясни, почему `array[index]` падает.\nТребования:\n- сравни с [String: Int] и [1, 2];\n- учти Dictionary[Key]."
+        XCTAssertEqual(ModelOutputCleaner.clean(text), text)
+    }
+
+    func testKeepsBracketsInsideCodeFence() {
+        let text = "Задача: найди ошибку.\n```swift\nlet x = items [index]\nlet y = [first item]\n```"
+        XCTAssertEqual(ModelOutputCleaner.clean(text), text)
+    }
+
+    func testRussianPromptGetsRussianSectionNames() {
+        let raw = """
+        Role: эксперт по Swift.
+
+        Задача:объясни замыкания.
+        Requirements:
+        -используй примеры;
+        •  будь краток.
+        Answer format: определение, пример, итог.
+        """
+        XCTAssertEqual(
+            ModelOutputCleaner.clean(raw, languageCode: "ru"),
+            "Роль: эксперт по Swift.\nЗадача: объясни замыкания.\nТребования:\n- используй примеры;\n- будь краток.\nФормат ответа: определение, пример, итог."
+        )
+    }
+
+    func testEnglishPromptKeepsEnglishSectionNames() {
+        let raw = "Context: I study Swift.\n\nTask: explain closures.\nRequirements:\n- short"
+        XCTAssertEqual(
+            ModelOutputCleaner.clean(raw, languageCode: "en"),
+            "Context: I study Swift.\nTask: explain closures.\nRequirements:\n- short"
+        )
+    }
+
+    func testOrdinaryColonLinesAreUntouched() {
+        let text = "Задача: сравни подходы.\nВажно: не используй сторонние библиотеки."
+        XCTAssertEqual(ModelOutputCleaner.clean(text, languageCode: "ru"), text)
+    }
 }

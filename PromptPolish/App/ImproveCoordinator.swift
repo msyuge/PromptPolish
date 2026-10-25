@@ -78,11 +78,12 @@ final class ImproveCoordinator: ObservableObject {
     private func generate(_ prompt: String, target: ChatTarget, into preview: PreviewModel) async {
         preview.phase = models.state == .ready ? .generating : .waitingForModel
         var raw = ""
+        let languageCode = PromptBuilder.languageCode(of: prompt)
         do {
             for try await chunk in models.engine.improve(prompt, for: target) {
                 preview.phase = .generating
                 raw += chunk
-                preview.text = ModelOutputCleaner.clean(raw)
+                preview.text = ModelOutputCleaner.clean(raw, languageCode: languageCode)
             }
             preview.phase = preview.text.isEmpty ? .failed(LLMError.emptyOutput.localizedDescription) : .ready
         } catch is CancellationError {
