@@ -6,13 +6,15 @@ import os
 @MainActor
 final class ImproveCoordinator: ObservableObject {
     let permission = AccessibilityPermission()
+    let models: ModelStore
 
     private let textBridge: TextBridge
     private let logger = Logger(subsystem: "local.promptpolish", category: "coordinator")
     private var currentTask: Task<Void, Never>?
 
-    init(textBridge: TextBridge = SystemTextBridge()) {
+    init(textBridge: TextBridge = SystemTextBridge(), engine: LLMEngine? = nil) {
         self.textBridge = textBridge
+        self.models = ModelStore(engine: engine ?? LLMEngine(builder: .bundledOrFail()))
     }
 
     func start() {
@@ -22,6 +24,7 @@ final class ImproveCoordinator: ObservableObject {
         if !permission.isTrusted {
             permission.request()
         }
+        models.prepare()
     }
 
     func improvePrompt() {

@@ -11,7 +11,10 @@ struct PromptPolishApp: App {
         .menuBarExtraStyle(.menu)
 
         Settings {
-            SettingsView(permission: appDelegate.coordinator.permission)
+            SettingsView(
+                permission: appDelegate.coordinator.permission,
+                models: appDelegate.coordinator.models
+            )
         }
     }
 }
