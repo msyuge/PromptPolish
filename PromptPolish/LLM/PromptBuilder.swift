@@ -57,11 +57,15 @@ struct PromptBuilder: Sendable {
 
     func messages(for idea: String, target: ChatTarget = .generic) -> [ChatTurn] {
         let idea = idea.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Служебные требования относятся к ответу модели, а не к промпту: без явной оговорки
+        // модель переносит их в итоговый промпт.
+        let language = Self.languageName(of: idea)
         let lines = [
             "Идея пользователя:", "<prompt>", idea, "</prompt>", "",
-            "Язык итогового промпта: \(Self.languageName(of: idea)).",
-            "Не используй заглушки в квадратных скобках.",
-            "Если задаёшь уточняющие вопросы, начни ответ со строки «\(Self.questionsMarker)».",
+            "Требования к твоему ответу (не переноси их в сам промпт):",
+            "- весь итоговый промпт пиши на языке: \(language);",
+            "- не оставляй в промпте заглушек в квадратных скобках;",
+            "- если задаёшь уточняющие вопросы, начни ответ со строки «\(Self.questionsMarker)» и задавай их на языке: \(language).",
         ]
         return [
             ChatTurn(role: .system, content: systemPrompt(for: target)),

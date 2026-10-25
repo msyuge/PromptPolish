@@ -12,6 +12,8 @@ final class ModelStore: ObservableObject {
     }
 
     @Published private(set) var state: State = .idle
+    /// Откуда загружена модель — показывается в настройках.
+    @Published private(set) var location: ModelLocator.Location?
     let engine: LLMEngine
 
     init(engine: LLMEngine) {
@@ -40,6 +42,10 @@ final class ModelStore: ObservableObject {
     }
 
     private func apply(_ event: LLMEngine.LoadEvent) {
+        if case let .located(location) = event {
+            self.location = location
+            return
+        }
         switch state {
         case .downloading, .loading: break
         case .idle, .ready, .failed: return
@@ -47,6 +53,7 @@ final class ModelStore: ObservableObject {
         switch event {
         case let .downloading(fraction): state = .downloading(fraction: fraction)
         case .loading: state = .loading
+        case .located: break
         }
     }
 }

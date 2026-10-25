@@ -46,7 +46,13 @@ struct SettingsView: View {
                         .foregroundStyle(.red)
                         .textSelection(.enabled)
                 }
-                Text("Веса хранятся в ~/.cache/huggingface/hub. Сеть нужна только для первого скачивания.")
+                if let location = models.location {
+                    Text(location.description)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+                Text("Сначала ищу модель в LM Studio и кэше Hugging Face; скачиваю, только если её нет на диске.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

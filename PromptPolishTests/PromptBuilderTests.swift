@@ -54,9 +54,10 @@ final class PromptBuilderTests: XCTestCase {
         напиши пост про кофе
         </prompt>
 
-        Язык итогового промпта: русский.
-        Не используй заглушки в квадратных скобках.
-        Если задаёшь уточняющие вопросы, начни ответ со строки «ВОПРОСЫ:».
+        Требования к твоему ответу (не переноси их в сам промпт):
+        - весь итоговый промпт пиши на языке: русский;
+        - не оставляй в промпте заглушек в квадратных скобках;
+        - если задаёшь уточняющие вопросы, начни ответ со строки «ВОПРОСЫ:» и задавай их на языке: русский.
         """)
     }
 
@@ -129,6 +130,11 @@ final class ModelReplyTests: XCTestCase {
     func testMarkerInTheMiddleAndRepeated() {
         let raw = "Нужно уточнить.\n\nВОПРОСЫ: Для кого план?\n\nВОПРОСЫ:На какой срок?"
         XCTAssertEqual(ModelReply.parse(raw), .questions("Нужно уточнить.\nДля кого план?\nНа какой срок?"))
+    }
+
+    func testEnglishQuestionsMarker() {
+        let raw = "I need to clarify.\n\n**QUESTIONS:**\n1. Who is your boss?"
+        XCTAssertEqual(ModelReply.parse(raw), .questions("I need to clarify.\n1. Who is your boss?"))
     }
 
     func testReasoningIsHidden() {

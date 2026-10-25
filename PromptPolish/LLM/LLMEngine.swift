@@ -4,7 +4,10 @@ import MLXLMCommon
 
 /// Модель и параметры генерации.
 struct ModelSpec: Sendable {
+    /// Репозиторий, из которого модель скачивается, если её нет на диске.
     let id: String
+    /// Другие репозитории с теми же весами — их копия на диске тоже подходит.
+    let aliases: [String]
     let displayName: String
     let approximateSize: String
     let extraEOSTokens: Set<String>
@@ -15,7 +18,8 @@ struct ModelSpec: Sendable {
     /// Qwen3.5 4B (март 2026): ≈3 ГБ весов — помещается на Mac с 8 ГБ памяти вместе с браузером.
     /// Рассуждения отключены: для переписывания промта они только замедляют ответ.
     static let qwen35_4B = ModelSpec(
-        id: "mlx-community/Qwen3.5-4B-4bit",
+        id: "mlx-community/Qwen3.5-4B-MLX-4bit",
+        aliases: ["mlx-community/Qwen3.5-4B-4bit"],
         displayName: "Qwen3.5 4B (4-bit)",
         approximateSize: "≈3 ГБ",
         extraEOSTokens: ["<|im_end|>"],
@@ -26,8 +30,14 @@ struct ModelSpec: Sendable {
     static let `default` = qwen35_4B
     static let all: [ModelSpec] = [.qwen35_4B]
 
-    var configuration: ModelConfiguration {
-        ModelConfiguration(id: id, extraEOSTokens: extraEOSTokens)
+    var repoIDs: [String] { [id] + aliases }
+
+    /// Конфигурация загрузки: локальная папка, если модель уже есть на диске, иначе — скачивание.
+    func configuration(for location: ModelLocator.Location) -> ModelConfiguration {
+        if let directory = location.directory {
+            return ModelConfiguration(directory: directory, extraEOSTokens: extraEOSTokens)
+        }
+        return ModelConfiguration(id: id, extraEOSTokens: extraEOSTokens)
     }
 }
 
@@ -35,22 +45,25 @@ struct ModelSpec: Sendable {
 /// ждут одну и ту же загрузку. Вся работа идёт вне main thread.
 actor LLMEngine {
     enum LoadEvent: Sendable {
+        case located(ModelLocator.Location)
         case downloading(fraction: Double)
         case loading
     }
 
     nonisolated let spec: ModelSpec
+    private let locator: ModelLocator
 
     private var container: ModelContainer?
     private var loadTask: Task<ModelContainer, Error>?
 
-    init(spec: ModelSpec = .default) {
+    init(spec: ModelSpec = .default, locator: ModelLocator = .standard) {
         self.spec = spec
+        self.locator = locator
     }
 
     var isLoaded: Bool { container != nil }
 
-    /// Скачивает модель (если её нет в кэше) и загружает её в память.
+    /// Находит модель на диске (LM Studio, кэш Hugging Face) или скачивает её и загружает в память.
     func prepare(onEvent: @escaping @Sendable (LoadEvent) -> Void = { _ in }) async throws {
         _ = try await loadedContainer(onEvent: onEvent)
     }
@@ -95,7 +108,9 @@ actor LLMEngine {
         if let container { return container }
         if let loadTask { return try await loadTask.value }
 
-        let configuration = spec.configuration
+        let location = locator.locate(repoIDs: spec.repoIDs)
+        onEvent(.located(location))
+        let configuration = spec.configuration(for: location)
         let task = Task<ModelContainer, Error> {
             let container = try await LLMModelFactory.shared.loadContainer(
                 from: HubSnapshotDownloader(),
