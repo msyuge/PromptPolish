@@ -16,8 +16,10 @@ final class ImproveCoordinator: ObservableObject {
         let builder: PromptBuilder
         /// Диалог с моделью: растёт, когда пользователь отвечает на уточняющие вопросы.
         var turns: [ChatTurn]
-        /// Мета-промпт исправляется автоматически не больше одного раза.
-        var correctedMetaPrompt: Bool
+        /// Идея без обращения к утилите («сделай промпт для…»).
+        let idea: String
+        /// Дефекты промпта исправляются автоматически не больше одного раза.
+        var corrected: Bool
         var generation: Task<Void, Never>?
     }
 
@@ -78,12 +80,14 @@ final class ImproveCoordinator: ObservableObject {
         preview.onAnswer = { [weak self] in self?.answerQuestions() }
 
         let builder = prompts.builder
+        let idea = IdeaNormalizer.stripPromptRequest(captured.text)
         session = Session(
             captured: captured,
             preview: preview,
             builder: builder,
-            turns: builder.messages(for: captured.text, target: target),
-            correctedMetaPrompt: false
+            turns: builder.messages(for: idea, target: target),
+            idea: idea,
+            corrected: false
         )
         panel.show(preview, models: models, anchor: captured.anchor)
         startGeneration()
@@ -113,16 +117,23 @@ final class ImproveCoordinator: ObservableObject {
                 session?.turns.append(ChatTurn(role: .assistant, content: raw))
                 preview.phase = .needsAnswers
             case let .prompt(prompt):
-                if let session, !session.correctedMetaPrompt,
-                   MetaPromptDetector.isMetaPrompt(prompt, idea: session.captured.text) {
-                    logger.notice("meta prompt detected, asking model to rewrite")
-                    self.session?.correctedMetaPrompt = true
-                    self.session?.turns = session.builder.correctingMetaPrompt(turns, reply: raw)
+                guard let session else { return }
+                let systemPrompt = turns.first?.content ?? ""
+                let issues = PromptQuality.issues(in: prompt, idea: session.idea, systemPrompt: systemPrompt)
+                if !issues.isEmpty, !session.corrected {
+                    logger.notice("prompt issues \(String(describing: issues), privacy: .public), asking model to rewrite")
+                    self.session?.corrected = true
+                    self.session?.turns = session.builder.correcting(turns, reply: raw, issues: issues)
                     preview.apply(.prompt(""))
                     startGeneration()
                     return
                 }
-                preview.phase = prompt.isEmpty ? .failed(LLMError.emptyOutput.localizedDescription) : .ready
+                // Если модель повторила копирование и после исправления, скопированные строки вырезаются.
+                let final = issues.contains { if case .templateEcho = $0 { true } else { false } }
+                    ? PromptQuality.removingEcho(from: prompt, systemPrompt: systemPrompt)
+                    : prompt
+                preview.apply(.prompt(final))
+                preview.phase = final.isEmpty ? .failed(LLMError.emptyOutput.localizedDescription) : .ready
             }
         } catch is CancellationError {
             return

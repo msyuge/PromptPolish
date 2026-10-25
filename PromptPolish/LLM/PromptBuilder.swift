@@ -86,14 +86,23 @@ struct PromptBuilder: Sendable {
         ]
     }
 
-    /// Повторный запрос, когда модель выдала промпт, который просит написать промпт.
-    func correctingMetaPrompt(_ history: [ChatTurn], reply: String) -> [ChatTurn] {
-        history + [
+    /// Повторный запрос с перечнем найденных дефектов промпта.
+    func correcting(_ history: [ChatTurn], reply: String, issues: [PromptIssue]) -> [ChatTurn] {
+        var problems: [String] = []
+        for issue in issues {
+            switch issue {
+            case .metaTask:
+                problems.append("- промпт просит написать промпт, а должен просить ассистента сразу выполнить мою задачу;")
+            case let .templateEcho(fragments):
+                let examples = fragments.prefix(3).map { "«\($0)»" }.joined(separator: ", ")
+                problems.append("- в промпт переписаны описания разделов из твоей инструкции (\(examples)) — замени их конкретным содержанием моей задачи;")
+            }
+        }
+        let content = (["Исправь промпт:"] + problems + ["Сохрани структуру и язык, выдай промпт в блоке кода, без вопросов."])
+            .joined(separator: "\n")
+        return history + [
             ChatTurn(role: .assistant, content: reply),
-            ChatTurn(
-                role: .user,
-                content: "Ошибка: этот промпт просит написать промпт. Перепиши его так, чтобы он просил ассистента сразу выполнить мою задачу. Сохрани структуру и язык, выдай промпт в блоке кода, без вопросов."
-            ),
+            ChatTurn(role: .user, content: content),
         ]
     }
 

@@ -15,6 +15,7 @@ final class LLMIntegrationTests: XCTestCase {
         ("напиши письмо клиенту о переносе срока сдачи проекта на неделю", .copilot),
         ("summarize this article for my boss", .mistral),
         ("сделай план", .generic),
+        ("сделай промпт для ассистента, чтобы он добавил в мою macOS-утилиту меню «Системные инструкции» с редактированием", .claude),
     ]
 
     /// Правдоподобные ответы на уточняющие вопросы для каждой идеи.
@@ -49,28 +50,38 @@ final class LLMIntegrationTests: XCTestCase {
         try await engine.prepare()
         var report = "Модель: \(engine.spec.id) (\(engine.spec.directory?.path(percentEncoded: false) ?? "скачивание"))\nЗагрузка: \(ContinuousClock.now - loadStart)\n"
 
-        // Повторяет сценарий ImproveCoordinator: вопросы → ответы → одна автокоррекция мета-промпта.
-        for (idea, target) in Self.samples {
+        // Повторяет сценарий ImproveCoordinator: вопросы → ответы → одно исправление дефектов промпта.
+        for (rawIdea, target) in Self.samples {
+            let idea = IdeaNormalizer.stripPromptRequest(rawIdea)
             var turns = builder.messages(for: idea, target: target)
+            let systemPrompt = builder.systemPrompt(for: target)
             var last = try await run(engine, turns)
-            report += "\n=== [\(target.rawValue)] \(idea)\n"
+            report += "\n=== [\(target.rawValue)] \(rawIdea)\n"
+            if idea != rawIdea { report += "(идея без обращения к утилите: \(idea))\n" }
             report += describe(last)
             XCTAssertGreaterThan(last.chunks, 1, "Ожидался стриминг несколькими кусками")
 
             if case .questions = last.reply {
-                turns = builder.followUp(turns, questions: last.raw, answers: Self.answers[idea] ?? "Сам реши, что разумно, и сразу напиши промпт.")
+                turns = builder.followUp(turns, questions: last.raw, answers: Self.answers[rawIdea] ?? "Сам реши, что разумно, и сразу напиши промпт.")
                 last = try await run(engine, turns)
                 report += "--- после ответов:\n" + describe(last)
-                XCTAssertEqual(last.reply.isPrompt, true, "После ответов модель снова спросила: \(idea)")
-            }
-            if case let .prompt(text) = last.reply, MetaPromptDetector.isMetaPrompt(text, idea: idea) {
-                report += "--- мета-промпт, автокоррекция:\n"
-                turns = builder.correctingMetaPrompt(turns, reply: last.raw)
-                last = try await run(engine, turns)
-                report += describe(last)
+                XCTAssertEqual(last.reply.isPrompt, true, "После ответов модель снова спросила: \(rawIdea)")
             }
             if case let .prompt(text) = last.reply {
-                XCTAssertFalse(MetaPromptDetector.isMetaPrompt(text, idea: idea), "Мета-промпт для «\(idea)» [\(target.rawValue)]")
+                let issues = PromptQuality.issues(in: text, idea: idea, systemPrompt: systemPrompt)
+                if !issues.isEmpty {
+                    report += "--- дефекты \(issues), исправление:\n"
+                    turns = builder.correcting(turns, reply: last.raw, issues: issues)
+                    last = try await run(engine, turns)
+                    report += describe(last)
+                }
+            }
+            if case let .prompt(text) = last.reply {
+                let remaining = PromptQuality.issues(in: text, idea: idea, systemPrompt: systemPrompt)
+                XCTAssertFalse(remaining.contains(.metaTask), "Мета-промпт для «\(rawIdea)» [\(target.rawValue)]")
+                let cleaned = PromptQuality.removingEcho(from: text, systemPrompt: systemPrompt)
+                XCTAssertTrue(PromptQuality.echoedFragments(in: cleaned, systemPrompt: systemPrompt).isEmpty, "Копия каркаса для «\(rawIdea)»")
+                if !remaining.isEmpty { report += "--- осталось после исправления: \(remaining)\n" }
             }
         }
 
