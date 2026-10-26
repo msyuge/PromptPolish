@@ -85,6 +85,10 @@ struct PreviewView: View {
                 .keyboardShortcut(.cancelAction)
             Spacer()
             if model.questions.isEmpty {
+                Button("Уточнить") { model.onClarify() }
+                    .keyboardShortcut("u", modifiers: .command)
+                    .help("Промт не попал в задачу: модель задаст уточняющие вопросы и напишет его заново (⌘U)")
+                    .disabled(!model.canClarify)
                 Button("Копировать") { model.onCopy() }
                     .keyboardShortcut("c", modifiers: [.command, .shift])
                     .disabled(!model.canUseResult)

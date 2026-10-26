@@ -69,6 +69,7 @@ The choice is remembered and the previous model is unloaded from memory.
 7. When the prompt is ready you can edit it in the panel. Then:
    - **Заменить** (Replace) or **Return** — the prompt replaces the text in the chat's field;
    - **Копировать** (Copy) or **⇧⌘C** — the prompt goes to the clipboard;
+   - **Уточнить** (Clarify) or **⌘U** — if the prompt missed the point, the model asks 2–3 questions and rewrites it after your answers;
    - **Отмена** (Cancel) or **Esc** — close the panel without changes.
 8. Send the prompt in the chat as usual.
 
@@ -131,7 +132,7 @@ A dot next to a chat means its instruction is customized; a pencil means unsaved
 
 **The prompt is odd or inaccurate.** Small models sometimes get details wrong, and Qwen3.5 0.8B writes the weakest prompts. Fix the result in the panel before replacing, add more specifics to your idea, or pick a larger model — Qwen3.5 4B — in the menu. If prompts for a particular chat are consistently off, edit its system instruction.
 
-**The model keeps asking questions.** It follows the rule "if the request is vague, ask first". Add who the result is for and what format you need, or remove that rule from the system instruction.
+**The model asks questions, or doesn't ask when it should.** PromptPolish asks the model for clarifying questions when the idea is short (up to five words) or refers to "my project", "my app" and the like. Add more detail to the idea to get the prompt right away. If the model guessed instead of asking, press **Уточнить** (Clarify).
 
 **Seeing what happened.** PromptPolish keeps a technical log without prompt text:
 

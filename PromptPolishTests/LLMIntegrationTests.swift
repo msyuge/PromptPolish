@@ -19,12 +19,23 @@ final class LLMIntegrationTests: XCTestCase {
         ("Перенести системные инструкции в настройки", .claude),
         ("explain swift closures to a beginner", .claude),
         ("write a cover letter for a junior designer job", .chatGPT),
+        ("напиши пост", .generic),
+        ("помоги улучшить мой проект", .claude),
+        ("add dark mode to my app", .chatGPT),
+    ]
+
+    /// Размытые идеи, на которые модель должна задать вопросы, а не гадать.
+    private static let vague: Set<String> = [
+        "сделай план", "Перенести системные инструкции в настройки", "напиши пост", "помоги улучшить мой проект", "add dark mode to my app",
     ]
 
     /// Правдоподобные ответы на уточняющие вопросы для каждой идеи.
     private static let answers: [String: String] = [
         "напиши пост для телеграм-канала о том, как выбрать кофемолку для дома": "Канал для любителей кофе, текстовый пост на 1500 знаков, тон дружелюбный.",
         "объясни что такое замыкания в swift новичку": "Новичок знает основы Swift: переменные, функции, циклы.",
+        "напиши пост": "Пост для телеграм-канала о кофе: как выбрать зерно для дома, 1000 знаков.",
+        "помоги улучшить мой проект": "Это сайт-визитка фотографа на Tilda, хочу больше заявок от клиентов.",
+        "add dark mode to my app": "It's a SwiftUI iOS app with about 20 screens; colors are hardcoded.",
         "какие новости про apple vision pro": "За последний месяц, официальные источники и крупные техсайты.",
         "summarize this article for my boss": "The boss is a CTO, wants 5 bullet points, the article text will be pasted after the prompt.",
         "Перенести системные инструкции в настройки": "Это моя macOS-утилита на SwiftUI: редактор системных инструкций сейчас в отдельном окне, его нужно перенести во вкладку окна настроек.",
@@ -56,7 +67,9 @@ final class LLMIntegrationTests: XCTestCase {
         try await engine.prepare { _ in }
         var report = "Модель: \(choice.id) (\(choice.locationDescription))\nЗагрузка: \(ContinuousClock.now - loadStart)\n"
 
-        // Повторяет сценарий ImproveCoordinator: вопросы → ответы → одно исправление дефектов промпта.
+        var askedOnVague = 0
+        var askedOnClear = 0
+        // Повторяет сценарий ImproveCoordinator: вопросы → ответы → исправление дефектов промпта.
         for (rawIdea, target) in Self.samples {
             let idea = IdeaNormalizer.stripPromptRequest(rawIdea)
             var turns = builder.messages(for: idea, target: target)
@@ -68,6 +81,7 @@ final class LLMIntegrationTests: XCTestCase {
             XCTAssertGreaterThan(last.chunks, 1, "Ожидался стриминг несколькими кусками")
 
             if case .questions = last.reply {
+                if Self.vague.contains(rawIdea) { askedOnVague += 1 } else { askedOnClear += 1 }
                 turns = builder.followUp(turns, questions: last.raw, answers: Self.answers[rawIdea] ?? "Сам реши, что разумно, и сразу напиши промпт.")
                 last = try await run(engine, turns)
                 report += "--- после ответов:\n" + describe(last)
@@ -78,7 +92,9 @@ final class LLMIntegrationTests: XCTestCase {
                 let issues = PromptQuality.issues(in: text, idea: idea, systemPrompt: systemPrompt)
                 guard !issues.isEmpty else { break }
                 report += "--- дефекты \(issues), исправление:\n"
-                turns = builder.correcting(turns, reply: last.raw, issues: issues)
+                if !issues.contains(.degenerate) {
+                    turns = builder.correcting(turns, reply: last.raw, issues: issues)
+                }
                 last = try await run(engine, turns)
                 report += describe(last)
             }
@@ -87,17 +103,39 @@ final class LLMIntegrationTests: XCTestCase {
                 if !remaining.isEmpty { report += "--- осталось после исправлений: \(remaining)\n" }
                 let final = remaining.isEmpty ? text : PromptQuality.removingDefects(from: text, systemPrompt: systemPrompt, idea: idea)
                 XCTAssertFalse(MetaPromptDetector.isMetaPrompt(final, idea: idea), "Мета-промпт для «\(rawIdea)» [\(target.rawValue)]")
-                XCTAssertTrue(PromptQuality.echoedFragments(in: final, systemPrompt: systemPrompt, idea: idea).isEmpty, "Пересказ инструкции для «\(rawIdea)»")
+                // Строки, которые почти целиком пересказывают инструкцию, недопустимы; отдельные совпавшие обороты — допустимы.
+                XCTAssertEqual(PromptQuality.mostlyEchoedLines(in: final, systemPrompt: systemPrompt, idea: idea), [], "Пересказ инструкции для «\(rawIdea)»")
                 XCTAssertFalse(PromptQuality.isDegenerate(final), "Пустой или зацикленный промпт для «\(rawIdea)» [\(target.rawValue)]")
                 report += "--- алфавит: идея \(Script.dominant(in: idea)), промпт \(Script.dominant(in: final))\n"
                 XCTAssertFalse(PromptQuality.isWrongLanguage(final, idea: idea), "Промпт не на языке идеи для «\(rawIdea)» [\(target.rawValue)]")
             }
         }
 
+        report += "\n=== Вопросы: на размытые идеи \(askedOnVague) из \(Self.vague.count), на ясные \(askedOnClear) из \(Self.samples.count - Self.vague.count)\n"
+        XCTAssertGreaterThanOrEqual(askedOnVague, Self.vague.count - 2, "Модель не переспрашивает на размытые идеи")
+
         let output = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("build/integration-output.txt")
         try report.write(to: output, atomically: true, encoding: .utf8)
+    }
+
+    /// Кнопка «Уточнить»: промпт готов, пользователь просит уточнить — модель должна задать вопросы.
+    func testClarifyAfterPromptLeadsToQuestions() async throws {
+        try XCTSkipUnless(isEnabled)
+        let builder = try PromptBuilder.bundled()
+        let engine = PromptEngines.make(for: choice)
+        try await engine.prepare { _ in }
+
+        for (idea, target) in [("объясни что такое замыкания в swift новичку", ChatTarget.claude), ("write a cover letter for a junior designer job", .chatGPT)] {
+            let turns = builder.messages(for: idea, target: target)
+            let first = try await run(engine, turns)
+            guard case .prompt = first.reply else { continue }
+            let clarify = try await run(engine, builder.requestingQuestions(turns, reply: first.raw))
+            guard case .questions = clarify.reply else {
+                return XCTFail("После «Уточнить» модель не задала вопросов для «\(idea)»: \(clarify.raw.prefix(200))")
+            }
+        }
     }
 
     func testCancellationStopsGeneration() async throws {
@@ -112,6 +150,12 @@ final class LLMIntegrationTests: XCTestCase {
             if chunks == 3 { break }
         }
         XCTAssertEqual(chunks, 3)
+        // Следующая генерация на том же движке ждёт, пока отменённая полностью остановится, и работает нормально.
+        var after = ""
+        for try await chunk in engine.respond(to: PromptBuilder(systemPrompt: "Отвечай одним словом.").messages(for: "столица франции")) {
+            after += chunk
+        }
+        XCTAssertFalse(PromptQuality.isDegenerate(after + " и ещё немного текста для проверки"), "После отмены модель выдаёт мусор: \(after)")
     }
 
     private struct Run {
@@ -128,6 +172,7 @@ final class LLMIntegrationTests: XCTestCase {
         for try await chunk in engine.respond(to: turns) {
             raw += chunk
             chunks += 1
+            if PromptQuality.isLooping(raw) { break }
         }
         return Run(raw: raw, reply: ModelReply.parse(raw), chunks: chunks, duration: ContinuousClock.now - start)
     }

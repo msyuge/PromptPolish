@@ -16,9 +16,9 @@ final class PromptBuilderTests: XCTestCase {
         let builder = try PromptBuilder.bundled()
         let rules: [PromptLanguage: [String]] = [
             .en: ["Never do the task yourself.", "to write, improve or generate a prompt", "one markdown code block",
-                  "Almost always choose A.", "Choose B only if the goal itself is unclear", "Keep every fact from the idea exactly", "No placeholders in square brackets"],
+                  "the request says that the idea needs clarification", "Never ask about what you can choose yourself", "Keep every fact from the idea exactly", "No placeholders in square brackets"],
             .ru: ["Никогда не выполняй задачу сам.", "написать, улучшить или сгенерировать промпт", "один markdown-блок кода",
-                  "Почти всегда выбирай A.", "Выбирай B, только если неясна сама цель", "Сохраняй все факты из идеи дословно", "Никаких заглушек в квадратных скобках"],
+                  "в запросе сказано, что идея требует уточнения", "Никогда не спрашивай о том, что можешь выбрать сам", "Сохраняй все факты из идеи дословно", "Никаких заглушек в квадратных скобках"],
         ]
         for language in PromptLanguage.allCases {
             let generic = builder.systemPrompt(for: .generic, language: language)
@@ -60,13 +60,13 @@ final class PromptBuilderTests: XCTestCase {
     }
 
     func testRussianRequestIsInRussian() {
-        let messages = PromptBuilder(systemPrompt: "SYSTEM").messages(for: "  напиши пост про кофе\n")
+        let messages = PromptBuilder(systemPrompt: "SYSTEM").messages(for: "  напиши пост про кофе для телеграм-канала\n")
 
         XCTAssertEqual(messages[0], ChatTurn(role: .system, content: "SYSTEM"))
         XCTAssertEqual(messages[1].content, """
         Идея пользователя:
         <idea>
-        напиши пост про кофе
+        напиши пост про кофе для телеграм-канала
         </idea>
 
         Требования к ответу (не переноси их в сам промпт):
@@ -167,6 +167,14 @@ final class ModelReplyTests: XCTestCase {
     func testReasoningIsHidden() {
         XCTAssertEqual(ModelReply.parse("<think>\n\n</think>\n\n```\nРоль: редактор.\n```"), .prompt("Роль: редактор."))
         XCTAssertEqual(ModelReply.parse("<think>Пользователь хочет"), .prompt(""))
+    }
+
+    func testQuestionsInsideCodeBlockAfterMarker() {
+        XCTAssertEqual(ModelReply.parse("ВОПРОСЫ:\n```\n1. Для кого?\n2. Какой объём?\n```"), .questions("1. Для кого?\n2. Какой объём?"))
+        XCTAssertEqual(
+            ModelReply.parse("ВОПРОСЫ:\n```\n1. Какой уровень знаний (новичок, средний)\n2. Нужен ли пример кода\n```"),
+            .questions("1. Какой уровень знаний (новичок, средний)\n2. Нужен ли пример кода")
+        )
     }
 
     func testCodeBlockWinsOverQuestions() {

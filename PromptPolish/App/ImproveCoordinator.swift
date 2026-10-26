@@ -20,6 +20,8 @@ final class ImproveCoordinator: ObservableObject {
         let idea: String
         /// Сколько раз модель уже просили исправить дефекты промпта.
         var corrections: Int
+        /// Последний готовый ответ модели — нужен, чтобы по кнопке «Уточнить» попросить у неё вопросы.
+        var lastReply: String?
         var generation: Task<Void, Never>?
     }
 
@@ -81,6 +83,7 @@ final class ImproveCoordinator: ObservableObject {
         preview.onCopy = { [weak self] in self?.copy() }
         preview.onCancel = { [weak self] in self?.finish() }
         preview.onAnswer = { [weak self] in self?.answerQuestions() }
+        preview.onClarify = { [weak self] in self?.askForQuestions() }
 
         models.beginUse()
         let builder = prompts.builder
@@ -91,7 +94,8 @@ final class ImproveCoordinator: ObservableObject {
             builder: builder,
             turns: builder.messages(for: idea, target: target),
             idea: idea,
-            corrections: 0
+            corrections: 0,
+            lastReply: nil
         )
         panel.show(preview, models: models, anchor: captured.anchor)
         startGeneration()
@@ -114,6 +118,11 @@ final class ImproveCoordinator: ObservableObject {
                 preview.phase = .generating
                 raw += chunk
                 preview.apply(ModelReply.parse(raw))
+                // Петлю обрываем сразу, а не досчитываем до лимита токенов.
+                if PromptQuality.isLooping(raw) {
+                    logger.notice("generation is looping, stopped early")
+                    break
+                }
             }
             switch ModelReply.parse(raw) {
             case .questions:
@@ -127,7 +136,11 @@ final class ImproveCoordinator: ObservableObject {
                 if !issues.isEmpty, session.corrections < PromptQuality.maxCorrections {
                     logger.notice("prompt issues \(String(describing: issues), privacy: .public), asking model to rewrite")
                     self.session?.corrections += 1
-                    self.session?.turns = session.builder.correcting(turns, reply: raw, issues: issues)
+                    // Пустой или зацикленный ответ модели не показываем: он закрепляет петлю. Запрос повторяется
+                    // с того же места, а случайность генерации даёт другой результат.
+                    self.session?.turns = issues.contains(.degenerate)
+                        ? turns
+                        : session.builder.correcting(turns, reply: raw, issues: issues)
                     preview.apply(.prompt(""))
                     startGeneration()
                     return
@@ -139,6 +152,7 @@ final class ImproveCoordinator: ObservableObject {
                 let final = issues.isEmpty
                     ? prompt
                     : PromptQuality.removingDefects(from: prompt, systemPrompt: systemPrompt, idea: session.idea)
+                self.session?.lastReply = raw
                 preview.apply(.prompt(final))
                 preview.phase = final.isEmpty ? .failed(LLMError.emptyOutput.localizedDescription) : .ready
             }
@@ -148,6 +162,18 @@ final class ImproveCoordinator: ObservableObject {
             logger.error("generation failed: \(error.localizedDescription, privacy: .public)")
             preview.phase = .failed(error.localizedDescription)
         }
+    }
+
+    /// Промпт не попал в задачу: модель задаёт уточняющие вопросы, после ответов пишет промпт заново.
+    private func askForQuestions() {
+        guard var session, session.preview.canClarify, let reply = session.lastReply else { return }
+        logger.notice("user asked for clarifying questions")
+        session.turns = session.builder.requestingQuestions(session.turns, reply: reply)
+        session.corrections = 0
+        session.lastReply = nil
+        session.preview.apply(.prompt(""))
+        self.session = session
+        startGeneration()
     }
 
     private func answerQuestions() {

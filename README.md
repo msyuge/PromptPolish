@@ -68,9 +68,11 @@ App Sandbox is disabled because Accessibility is unavailable inside it. This is 
 | Replace the text in the field | **Заменить** (Replace) or **Return** |
 | Copy the result | **Копировать** (Copy) or **⇧⌘C** — the only case where the clipboard changes |
 | Answer the model's questions | type your answer → **Ответить** (Answer) or **⌘↩** |
+| The prompt missed the point | **Уточнить** (Clarify) or **⌘U** — the model asks clarifying questions and rewrites the prompt |
 | Close without changes | **Отмена** (Cancel) or **Esc** |
 
 - If nothing is selected, the whole field is used.
+- For a vague idea — up to five words, or one about "my project", "my app" and the like — PromptPolish tells the model to ask clarifying questions first. For a clear idea the model writes the prompt right away and fills in sensible defaults; if it guessed wrong, press **Уточнить** (Clarify).
 - When generation finishes you can edit the result in the panel before replacing.
 - The hotkey can be changed in **Настройки** (Settings).
 - The interface is in Russian; English names are given in parentheses.
@@ -142,7 +144,7 @@ xcodebuild -downloadComponent MetalToolchain
 make install
 ```
 
-`make install` builds the Release configuration, copies it to `~/Applications/PromptPolish.app` and launches it. The first build takes several minutes because MLX and its Metal shaders are compiled.
+`make install` builds the Release configuration, replaces `/Applications/PromptPolish.app` with it and launches it. The first build takes several minutes because MLX and its Metal shaders are compiled.
 
 Debug builds are signed with **Apple Development**, Release builds with **Developer ID Application** (team `6ALXRXJXN6` in `project.yml`). To build under another account, change `DEVELOPMENT_TEAM` and `scripts/ExportOptions.plist`. Keep the signing identity stable between builds, otherwise macOS resets the Accessibility permission after every rebuild.
 
@@ -152,7 +154,7 @@ Debug builds are signed with **Apple Development**, Release builds with **Develo
 | `make run` | build and relaunch the Debug app |
 | `make test` | unit tests |
 | `make integration` | real generation on the model for every chat, report in `build/integration-output.txt` |
-| `make install` | Release build into `~/Applications` |
+| `make install` | Release build into `/Applications` |
 | `make dmg` | signed DMG without notarization |
 | `make release` | DMG signed with Developer ID and notarized |
 | `make icon` | regenerate the app icon (`scripts/make-icon.swift`) |

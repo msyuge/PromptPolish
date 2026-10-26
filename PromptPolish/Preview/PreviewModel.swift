@@ -25,6 +25,7 @@ final class PreviewModel: ObservableObject {
     var onCopy: () -> Void = {}
     var onCancel: () -> Void = {}
     var onAnswer: () -> Void = {}
+    var onClarify: () -> Void = {}
 
     init(target: ChatTarget) {
         self.target = target
@@ -37,6 +38,11 @@ final class PreviewModel: ObservableObject {
         case .ready, .failed: return true
         case .waitingForModel, .generating, .needsAnswers, .replacing: return false
         }
+    }
+
+    /// «Уточнить» доступно, когда промпт готов: модель задаст вопросы и напишет промпт заново.
+    var canClarify: Bool {
+        phase == .ready && !text.isEmpty && questions.isEmpty
     }
 
     var canSendAnswer: Bool {

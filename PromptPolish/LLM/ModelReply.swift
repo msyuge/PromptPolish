@@ -8,6 +8,14 @@ enum ModelReply: Equatable {
     /// Блок ``` важнее маркера вопросов: если модель и спросила, и выдала промт, используется промт.
     static func parse(_ raw: String) -> ModelReply {
         let text = withoutReasoning(raw).trimmingCharacters(in: .whitespacesAndNewlines)
+        // Ответ, начатый с маркера, — вопросы, даже если модель положила их в блок кода. Но если в блоке
+        // полноценный промпт, а не список вопросов, берётся промпт.
+        let unwrapped = text.hasPrefix("**") ? String(text.dropFirst(2)) : text
+        if PromptBuilder.questionsMarkers.contains(where: { unwrapped.uppercased().hasPrefix($0) }),
+           fencedBlock(in: text).map(isQuestionList) ?? true,
+           let questions = questions(in: text.replacingOccurrences(of: "```", with: "")) {
+            return .questions(questions)
+        }
         if let block = fencedBlock(in: text) {
             return .prompt(ModelOutputCleaner.clean(block))
         }
@@ -43,6 +51,17 @@ enum ModelReply: Equatable {
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
             .joined(separator: "\n")
+    }
+
+    /// После маркера вопросов модель иногда кладёт в блок кода сами вопросы, а иногда — полноценный промпт.
+    /// Промпт узнаётся по разделам: XML-тегам, markdown-заголовкам или меткам вида «Роль:» / «Task:».
+    private static let promptSections = try! NSRegularExpression(
+        pattern: #"(?m)<(role|context|task|instructions|output_format)>|^\s*#{1,3}\s|^\s*\**(Роль|Контекст|Задача|Цель|Инструкции|Требования|Формат|Персона|Role|Context|Task|Goal|Instructions|Requirements|Persona|Output format)\b[^\n]{0,20}:"#,
+        options: [.caseInsensitive]
+    )
+
+    private static func isQuestionList(_ text: String) -> Bool {
+        promptSections.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) == nil
     }
 
     /// Содержимое блока ```: от строки после открывающего ограждения до последнего закрывающего.

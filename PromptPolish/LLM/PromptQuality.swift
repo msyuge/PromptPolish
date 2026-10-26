@@ -25,6 +25,25 @@ enum IdeaNormalizer {
     }
 }
 
+/// Маленькая модель сама плохо понимает, что ей чего-то не хватает, и додумывает. Короткая идея или
+/// ссылка на неизвестный ей контекст («мой проект», «my app») — повод подсказать, что лучше переспросить.
+enum IdeaClarity {
+    private static let ownContext: Set<String> = [
+        "мой", "моя", "моё", "мое", "мою", "мои", "моего", "моей", "моих", "моим", "моему", "моём", "моем", "моими",
+        "наш", "наша", "наше", "нашу", "наши", "нашего", "нашей", "наших", "нашим", "нашему", "нашем",
+        "my", "our",
+    ]
+
+    static func needsClarification(_ idea: String) -> Bool {
+        let words = idea.lowercased()
+            .components(separatedBy: CharacterSet.letters.inverted)
+            .filter { !$0.isEmpty }
+        if words.count <= 5 { return true }
+        // Длинная идея со своим описанием или вставленным материалом — контекст уже есть.
+        return words.count <= 20 && words.contains(where: ownContext.contains)
+    }
+}
+
 /// Дефекты готового промпта, которые исправляются повторным запросом к модели.
 enum PromptIssue: Equatable {
     /// Промпт просит чат написать промпт вместо того, чтобы поставить ему задачу.
@@ -104,6 +123,19 @@ enum PromptQuality {
     /// Строка, повторённая столько раз, — признак зацикливания маленькой модели.
     private static let loopThreshold = 6
 
+    /// Генерация зациклилась: одна непустая строка повторилась 8 раз. Проверяется во время стриминга,
+    /// чтобы не досчитывать петлю до лимита токенов.
+    static func isLooping(_ raw: String) -> Bool {
+        var counts: [Substring: Int] = [:]
+        for line in raw.split(separator: "\n", omittingEmptySubsequences: true) {
+            let key = line.trimmingCharacters(in: .whitespaces)[...]
+            guard !key.isEmpty else { continue }
+            counts[key, default: 0] += 1
+            if counts[key]! >= 8 { return true }
+        }
+        return false
+    }
+
     /// Меньше 20 букв или строка, повторённая 6 и более раз (пустые строки и ``` тоже считаются).
     static func isDegenerate(_ prompt: String) -> Bool {
         if prompt.unicodeScalars.filter(CharacterSet.letters.contains).count < 20 { return true }
@@ -120,7 +152,7 @@ enum PromptQuality {
     /// Куски промпта, совпадающие с инструкцией по 6 и более словам подряд (после нормализации).
     static func echoedFragments(in prompt: String, systemPrompt: String, idea: String = "") -> [String] {
         let tokens = tokenize(prompt)
-        let marked = echoMarks(tokens.map(\.word), systemPrompt: systemPrompt, idea: idea)
+        let marked = echoMarks(tokens, systemPrompt: systemPrompt, idea: idea)
         var runs: [String] = []
         var current: [String] = []
         for (index, token) in tokens.enumerated() {
@@ -134,6 +166,9 @@ enum PromptQuality {
         if !current.isEmpty { runs.append(current.joined(separator: " ")) }
         return runs
     }
+
+    /// Теги разделов промпта Claude. Остальные теги (например, HTML в задаче про вёрстку) — содержание, а не структура.
+    static let sectionTags: Set<String> = ["document", "role", "context", "task", "instructions", "constraints", "examples", "output_format"]
 
     /// Теги разделов (`<role>`, `<task>`…), у которых не сходятся открытие и закрытие. Код в ``` не проверяется.
     static func brokenTags(in prompt: String) -> [String] {
@@ -150,6 +185,7 @@ enum PromptQuality {
             for match in regex.matches(in: line, range: NSRange(line.startIndex..., in: line)) {
                 guard let slash = Range(match.range(at: 1), in: line), let name = Range(match.range(at: 2), in: line) else { continue }
                 let tag = String(line[name])
+                guard sectionTags.contains(tag) else { continue }
                 if line[slash].isEmpty {
                     depth[tag, default: 0] += 1
                 } else if depth[tag, default: 0] > 0 {
@@ -175,25 +211,38 @@ enum PromptQuality {
         let lines = unique.filter { line in
             if line.trimmingCharacters(in: .whitespaces) == "```" { return false }
             if MetaPromptDetector.isMetaPrompt(line, idea: idea) { return false }
-            let words = tokenize(line).map(\.word)
-            guard !words.isEmpty else { return true }
-            let marked = echoMarks(words, systemPrompt: systemPrompt, idea: idea).filter { $0 }.count
-            return Double(marked) < Double(words.count) * 0.5
+            return !isMostlyEcho(line, systemPrompt: systemPrompt, idea: idea)
         }
         return removingEmptyTags(lines.joined(separator: "\n")).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Отмечает слова, входящие в любую последовательность из 5 слов, которая есть в инструкции.
+    /// Строки, которые больше чем наполовину пересказывают инструкцию. Отдельный совпавший оборот в своей
+    /// строке допустим: модель может разумно взять форму требования из примера.
+    static func mostlyEchoedLines(in prompt: String, systemPrompt: String, idea: String) -> [String] {
+        prompt.components(separatedBy: "\n").filter { isMostlyEcho($0, systemPrompt: systemPrompt, idea: idea) }
+    }
+
+    private static func isMostlyEcho(_ line: String, systemPrompt: String, idea: String) -> Bool {
+        let tokens = tokenize(line)
+        guard !tokens.isEmpty else { return false }
+        let marked = echoMarks(tokens, systemPrompt: systemPrompt, idea: idea).filter { $0 }.count
+        return Double(marked) >= Double(tokens.count) * 0.5
+    }
+
+    /// Отмечает слова, входящие в любую последовательность из 6 слов одной строки, которая есть в одной строке
+    /// инструкции. Через перенос строки не склеивается: «# Role and goal» + «You are a…» — естественное начало промпта.
     /// Фразы в «ёлочках» инструкция велит воспроизвести (например, «дай ссылки на источники»),
     /// а слова из идеи пользователя — его собственные, поэтому они не считаются копированием.
-    private static func echoMarks(_ words: [String], systemPrompt: String, idea: String) -> [Bool] {
+    private static func echoMarks(_ tokens: [(word: String, line: Int)], systemPrompt: String, idea: String) -> [Bool] {
         let source = systemPrompt.replacingOccurrences(of: #"«[^»]*»"#, with: " | ", options: .regularExpression)
-        let instruction = shingles(of: tokenize(source).map(\.word))
-        let own = shingles(of: tokenize(idea).map(\.word))
-        var marked = Array(repeating: false, count: words.count)
-        guard words.count >= shingleLength else { return marked }
-        for start in 0...(words.count - shingleLength) {
-            let shingle = words[start..<(start + shingleLength)].joined(separator: " ")
+        let instruction = shingles(of: tokenize(source))
+        let own = shingles(of: tokenize(idea))
+        var marked = Array(repeating: false, count: tokens.count)
+        guard tokens.count >= shingleLength else { return marked }
+        for start in 0...(tokens.count - shingleLength) {
+            let window = tokens[start..<(start + shingleLength)]
+            guard window.first?.line == window.last?.line else { continue }
+            let shingle = window.map(\.word).joined(separator: " ")
             if instruction.contains(shingle), !own.contains(shingle) {
                 for index in start..<(start + shingleLength) { marked[index] = true }
             }
@@ -201,9 +250,15 @@ enum PromptQuality {
         return marked
     }
 
-    private static func shingles(of words: [String]) -> Set<String> {
-        guard words.count >= shingleLength else { return [] }
-        return Set((0...(words.count - shingleLength)).map { words[$0..<($0 + shingleLength)].joined(separator: " ") })
+    private static func shingles(of tokens: [(word: String, line: Int)]) -> Set<String> {
+        guard tokens.count >= shingleLength else { return [] }
+        var result: Set<String> = []
+        for start in 0...(tokens.count - shingleLength) {
+            let window = tokens[start..<(start + shingleLength)]
+            guard window.first?.line == window.last?.line else { continue }
+            result.insert(window.map(\.word).joined(separator: " "))
+        }
+        return result
     }
 
     /// Слова текста без разметки: теги, знаки и регистр не важны, «ё» равно «е».

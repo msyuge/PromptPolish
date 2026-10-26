@@ -22,7 +22,10 @@ QUESTIONS:
 2. How many slides, and how long is the talk?
 3. Do you need the slide text or only the structure?
 
-Almost always choose A. If the idea names a topic and an action, it is A — even when details are missing: pick sensible defaults and state them in the prompt as requirements. Choose B only if the goal itself is unclear, as in "make a presentation" or "make a plan" with nothing else.
+When to ask — choose B in two cases:
+- the request says that the idea needs clarification;
+- you cannot tell at all what the result should be about.
+Otherwise choose A, even when details are missing: pick sensible defaults and state them in the prompt as requirements. Never ask about what you can choose yourself — length, tone, format, structure.
 
 Rules for the prompt:
 1. Never do the task yourself. The prompt is the message the user will paste into {chat}: it asks {chat} to do the task right away. Never ask {chat} to write, improve or generate a prompt.
@@ -257,11 +260,14 @@ B. Уточняющие вопросы: строка «ВОПРОСЫ:» и 2–
 2. Сколько слайдов и сколько минут на выступление?
 3. Нужен готовый текст слайдов или только структура?
 
-Почти всегда выбирай A. Если в идее есть тема и действие — это A, даже когда не хватает деталей: подставь разумные значения по умолчанию и запиши их в промпт как требования. Выбирай B, только если неясна сама цель, как в «сделай презентацию» или «сделай план» без других слов.
+Когда спрашивать — выбирай B в двух случаях:
+- в запросе сказано, что идея требует уточнения;
+- совсем непонятно, о чём должен быть результат.
+В остальных случаях выбирай A, даже если не хватает деталей: подставь разумные значения по умолчанию и запиши их в промпт как требования. Никогда не спрашивай о том, что можешь выбрать сам, — объём, тон, формат, структура.
 
 Правила для промпта:
-1. Никогда не выполняй задачу сам. Промпт — это сообщение, которое пользователь вставит в {chat}: оно просит {chat} сразу выполнить задачу. Никогда не проси {chat} написать, улучшить или сгенерировать промпт.
-2. Пиши весь промпт на языке, указанном в запросе, от лица пользователя, обращаясь к {chat} («Объясни…», «Мне нужно…»). Заголовки разделов — на том же языке; имена XML-тегов остаются английскими.
+1. Никогда не выполняй задачу сам. Промпт — это сообщение, которое пользователь вставит в окно чата: оно просит {chat} сразу выполнить задачу. Никогда не проси {chat} написать, улучшить или сгенерировать промпт.
+2. Пиши весь промпт на языке, указанном в запросе, от лица пользователя, обращаясь к {chat_dat} («Объясни…», «Мне нужно…»). Заголовки разделов — на том же языке; имена XML-тегов остаются английскими.
 3. Сохраняй все факты из идеи дословно: имена, числа, даты, код, ссылки. Никогда не придумывай факты, которых пользователь не дал.
 4. Никаких заглушек в квадратных скобках. Если для задачи нужен материал пользователя (текст, код, файл), напиши, что он вставлен ниже или приложен.
 5. Пиши конкретно и кратко: каждая строка должна влиять на ответ. Обычно 80–250 слов.
@@ -283,6 +289,7 @@ AFTER_DASH_RU = "После тире описано, что должно быт�
 CHATS_RU = {
     "generic": dict(
         chat="ИИ-ассистента",
+        chat_dat="ИИ-ассистенту",
         about="",
         structure=f"""Используй такие разделы в этом порядке, каждый с коротким заголовком. {AFTER_DASH_RU}
 - Роль — экспертиза, нужная ассистенту для этой задачи;
@@ -486,6 +493,6 @@ CHATS_RU = {
 
 for language, core, chats in [("en", CORE, CHATS), ("ru", CORE_RU, CHATS_RU)]:
     for key, spec in chats.items():
-        text = core.format(fence=FENCE, **spec)
+        text = core.format(fence=FENCE, **{"chat_dat": spec["chat"], **spec})
         (OUT / f"SystemPrompt-{key}-{language}.txt").write_text(text)
         print(f"SystemPrompt-{key}-{language}.txt: {len(text.split())} words")

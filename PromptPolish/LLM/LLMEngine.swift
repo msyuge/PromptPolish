@@ -48,6 +48,9 @@ actor LLMEngine: PromptEngine {
 
     private var container: ModelContainer?
     private var loadTask: Task<ModelContainer, Error>?
+    /// Последняя запущенная генерация. Новая ждёт её полного завершения: две генерации на одном
+    /// GPU-потоке MLX (например, отменённая, которая ещё дорабатывает шаг, и следующая) портят друг другу вывод.
+    private var lastGeneration: Task<Void, Error>?
 
     init(spec: ModelSpec) {
         self.spec = spec
@@ -73,7 +76,23 @@ actor LLMEngine: PromptEngine {
         }
     }
 
-    private func generate(_ turns: [ChatTurn], onChunk: @Sendable (String) -> Void) async throws {
+    private func generate(_ turns: [ChatTurn], onChunk: @escaping @Sendable (String) -> Void) async throws {
+        let previous = lastGeneration
+        let current = Task {
+            _ = await previous?.result
+            try await self.runGeneration(turns, onChunk: onChunk)
+        }
+        lastGeneration = current
+        try await withTaskCancellationHandler {
+            try await current.value
+        } onCancel: {
+            current.cancel()
+        }
+    }
+
+    /// Генерация с явной задачей MLX: при отмене её останавливают и дожидаются, пока она доделает
+    /// последний шаг на GPU, — только после этого может начаться следующая генерация.
+    private func runGeneration(_ turns: [ChatTurn], onChunk: @escaping @Sendable (String) -> Void) async throws {
         let container = try await loadedContainer(onEvent: { _ in })
         let chat: [Chat.Message] = turns.map { turn in
             switch turn.role {
@@ -84,14 +103,26 @@ actor LLMEngine: PromptEngine {
         }
         let context: [String: any Sendable] = spec.templateContext
         let input = try await container.prepare(input: UserInput(chat: chat, additionalContext: context))
-        let stream = try await container.generate(input: input, parameters: spec.parameters)
-        for await event in stream {
-            try Task.checkCancellation()
-            if let chunk = event.chunk {
-                onChunk(chunk)
+        let parameters = spec.parameters
+        try await container.perform(nonSendable: input) { context, input in
+            let iterator = try TokenIterator(input: input, model: context.model, parameters: parameters)
+            let (stream, producer) = generateTask(
+                promptTokenCount: input.text.tokens.size,
+                modelConfiguration: context.configuration,
+                tokenizer: context.tokenizer,
+                iterator: iterator,
+                toolCallPolicy: parameters.toolCallPolicy
+            )
+            for await event in stream {
+                if Task.isCancelled { break }
+                if let chunk = event.chunk {
+                    onChunk(chunk)
+                }
             }
+            producer.cancel()
+            await producer.value
+            try Task.checkCancellation()
         }
-        try Task.checkCancellation()
     }
 
     private func loadedContainer(onEvent: @escaping @Sendable (ModelLoadEvent) -> Void) async throws -> ModelContainer {

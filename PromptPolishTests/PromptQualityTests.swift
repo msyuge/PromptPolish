@@ -208,4 +208,52 @@ final class PromptQualityTests: XCTestCase {
         let english = builder.correcting(builder.messages(for: "compare mobile plans"), reply: "Задача: сравни.", issues: [.wrongLanguage])
         XCTAssertTrue(english[3].content.contains("rewrite the whole prompt in English"))
     }
+
+    func testVagueIdeasNeedClarification() {
+        XCTAssertTrue(IdeaClarity.needsClarification("сделай план"))
+        XCTAssertTrue(IdeaClarity.needsClarification("Перенести системные инструкции в настройки"))
+        XCTAssertTrue(IdeaClarity.needsClarification("помоги улучшить мой проект"))
+        XCTAssertTrue(IdeaClarity.needsClarification("add dark mode to my app"))
+        XCTAssertFalse(IdeaClarity.needsClarification("объясни что такое замыкания в swift новичку"))
+        XCTAssertFalse(IdeaClarity.needsClarification("напиши письмо клиенту о переносе срока сдачи проекта на неделю"))
+        XCTAssertFalse(IdeaClarity.needsClarification("помоги мне выбрать ноутбук до 80 тысяч для программирования"))
+    }
+
+    func testVagueIdeaGetsHintInRequest() {
+        let builder = PromptBuilder(systemPrompt: "S")
+
+        XCTAssertTrue(builder.messages(for: "сделай план")[1].content.contains("идея требует уточнения"))
+        XCTAssertTrue(builder.messages(for: "add dark mode to my app")[1].content.contains("the idea needs clarification"))
+        XCTAssertFalse(builder.messages(for: "объясни что такое замыкания в swift новичку")[1].content.contains("требует уточнения"))
+    }
+
+    func testClarifyRequestAsksForQuestionsInIdeaLanguage() {
+        let builder = PromptBuilder(systemPrompt: "S")
+
+        let ru = builder.requestingQuestions(builder.messages(for: "перенести инструкции в настройки"), reply: "```\nПромпт\n```")
+        let en = builder.requestingQuestions(builder.messages(for: "add dark mode to my app"), reply: "```\nPrompt\n```")
+
+        XCTAssertEqual(ru[2], ChatTurn(role: .assistant, content: "```\nПромпт\n```"))
+        XCTAssertTrue(ru[3].content.contains("«ВОПРОСЫ:»"))
+        XCTAssertTrue(ru[3].content.contains("Промпт пока не пиши"))
+        XCTAssertTrue(en[3].content.contains("\"QUESTIONS:\""))
+    }
+
+    func testEchoDoesNotSpanLines() {
+        let system = "# Role and goal\nYou are a naming specialist. I need a name for a small yoga studio."
+        let prompt = "# Role and goal\nYou are a career coach who helps junior designers."
+        XCTAssertEqual(PromptQuality.echoedFragments(in: prompt, systemPrompt: system), [])
+        XCTAssertFalse(PromptQuality.echoedFragments(in: "You are a naming specialist. I need a name for my bakery.", systemPrompt: system).isEmpty)
+    }
+
+    func testLoopingIsDetectedDuringStreaming() {
+        XCTAssertTrue(PromptQuality.isLooping("Задача: объясни.\n" + Array(repeating: "```", count: 8).joined(separator: "\n")))
+        XCTAssertFalse(PromptQuality.isLooping("Задача: объясни.\n" + Array(repeating: "```", count: 7).joined(separator: "\n")))
+        XCTAssertFalse(PromptQuality.isLooping("- пункт один\n- пункт два\n- пункт три"))
+    }
+
+    func testHTMLInsidePromptIsNotBrokenStructure() {
+        let prompt = "<task>Добавь тёмную тему.</task>\nВот разметка:\n<html><body><script>"
+        XCTAssertEqual(PromptQuality.brokenTags(in: prompt), [])
+    }
 }

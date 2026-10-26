@@ -112,6 +112,9 @@ struct PromptBuilder: Sendable {
                 "- пользователь вставит промпт в чат как есть: промпт должен просить ассистента сразу выполнить задачу из идеи, а не написать, улучшить или сгенерировать промпт;",
                 "- никаких заглушек в квадратных скобках;",
                 "- если задаёшь уточняющие вопросы, начни ответ со строки «\(language.questionsMarker)».",
+            ] + (IdeaClarity.needsClarification(idea) ? [
+                "- идея требует уточнения: она короткая или ссылается на то, чего ты не знаешь (например, «мой проект»). Задай уточняющие вопросы о том, без чего промпт пришлось бы угадывать.",
+            ] : []) + [
                 "",
                 "Весь промпт (или вопросы) пиши на языке: \(Self.languageName(of: idea, in: .ru)).",
             ]
@@ -122,6 +125,9 @@ struct PromptBuilder: Sendable {
                 "- the user will paste the prompt into the chat as is: it must ask the assistant to do the task from the idea right away, never to write, improve or generate a prompt;",
                 "- no placeholders in square brackets;",
                 "- if you ask clarifying questions, start your reply with the line \"\(language.questionsMarker)\".",
+            ] + (IdeaClarity.needsClarification(idea) ? [
+                "- the idea needs clarification: it is short or refers to something you don't know (for example, \"my project\"). Ask clarifying questions about what you would otherwise have to guess.",
+            ] : []) + [
                 "",
                 "Write the entire prompt (or the questions) in \(Self.languageName(of: idea, in: .en)).",
             ] + [Self.languageDirective(for: idea)].compactMap { $0 }
@@ -141,6 +147,19 @@ struct PromptBuilder: Sendable {
         }
         return history + [
             ChatTurn(role: .assistant, content: questions),
+            ChatTurn(role: .user, content: content),
+        ]
+    }
+
+    /// Пользователь нажал «Уточнить»: промпт не попал в задачу, модель должна задать вопросы, а не гадать снова.
+    func requestingQuestions(_ history: [ChatTurn], reply: String) -> [ChatTurn] {
+        let language = PromptLanguage.of(idea(in: history))
+        let content = switch language {
+        case .ru: "Этот промпт не попал в мою задачу. Задай 2–3 уточняющих вопроса о том, чего тебе не хватает, — начни ответ со строки «\(language.questionsMarker)». Промпт пока не пиши."
+        case .en: "This prompt missed what I need. Ask 2–3 clarifying questions about what is missing; start your reply with the line \"\(language.questionsMarker)\". Do not write the prompt yet."
+        }
+        return history + [
+            ChatTurn(role: .assistant, content: reply),
             ChatTurn(role: .user, content: content),
         ]
     }

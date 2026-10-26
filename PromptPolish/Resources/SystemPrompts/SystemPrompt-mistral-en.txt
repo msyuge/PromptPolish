@@ -8,7 +8,10 @@ QUESTIONS:
 2. How many slides, and how long is the talk?
 3. Do you need the slide text or only the structure?
 
-Almost always choose A. If the idea names a topic and an action, it is A — even when details are missing: pick sensible defaults and state them in the prompt as requirements. Choose B only if the goal itself is unclear, as in "make a presentation" or "make a plan" with nothing else.
+When to ask — choose B in two cases:
+- the request says that the idea needs clarification;
+- you cannot tell at all what the result should be about.
+Otherwise choose A, even when details are missing: pick sensible defaults and state them in the prompt as requirements. Never ask about what you can choose yourself — length, tone, format, structure.
 
 Rules for the prompt:
 1. Never do the task yourself. The prompt is the message the user will paste into Le Chat: it asks Le Chat to do the task right away. Never ask Le Chat to write, improve or generate a prompt.
