@@ -33,15 +33,18 @@ enum PromptIssue: Equatable {
     case templateEcho([String])
     /// XML-теги разделов не закрыты или закрыты без открытия.
     case brokenTags([String])
+    /// Ответ пустой или зациклился: одна и та же строка повторяется много раз.
+    case degenerate
 }
 
 enum PromptQuality {
     /// Сколько раз подряд модель просят исправить один и тот же промпт.
     static let maxCorrections = 2
 
-    /// Совпадение по стольким словам подряд с инструкцией не бывает случайным:
+    /// Совпадение по стольким словам подряд с инструкцией не бывает случайным (5 давало ложные срабатывания
+    /// на естественных фразах вроде «формат ответа: таблица со столбцами»):
     /// модель переписала или пересказала её вместо того, чтобы заполнить разделы содержанием.
-    private static let shingleLength = 5
+    private static let shingleLength = 6
 
     static func issues(in prompt: String, idea: String, systemPrompt: String) -> [PromptIssue] {
         var issues: [PromptIssue] = []
@@ -56,10 +59,29 @@ enum PromptQuality {
         if !broken.isEmpty {
             issues.append(.brokenTags(broken))
         }
+        if isDegenerate(prompt) {
+            issues.append(.degenerate)
+        }
         return issues
     }
 
-    /// Куски промпта, совпадающие с инструкцией по 5 и более словам подряд (после нормализации).
+    /// Строка, повторённая столько раз, — признак зацикливания маленькой модели.
+    private static let loopThreshold = 6
+
+    /// Меньше 20 букв или строка, повторённая 6 и более раз (пустые строки и ``` тоже считаются).
+    static func isDegenerate(_ prompt: String) -> Bool {
+        if prompt.unicodeScalars.filter(CharacterSet.letters.contains).count < 20 { return true }
+        var counts: [String: Int] = [:]
+        for line in prompt.components(separatedBy: "\n") {
+            let key = line.trimmingCharacters(in: .whitespaces)
+            guard !key.isEmpty else { continue }
+            counts[key, default: 0] += 1
+            if counts[key]! >= loopThreshold { return true }
+        }
+        return false
+    }
+
+    /// Куски промпта, совпадающие с инструкцией по 6 и более словам подряд (после нормализации).
     static func echoedFragments(in prompt: String, systemPrompt: String, idea: String = "") -> [String] {
         let tokens = tokenize(prompt)
         let marked = echoMarks(tokens.map(\.word), systemPrompt: systemPrompt, idea: idea)
@@ -108,7 +130,14 @@ enum PromptQuality {
     /// Последняя мера, если дефекты остались и после исправлений: удаляются строки,
     /// которые больше чем наполовину пересказывают инструкцию или просят написать промпт.
     static func removingDefects(from prompt: String, systemPrompt: String, idea: String) -> String {
-        let lines = prompt.components(separatedBy: "\n").filter { line in
+        // Повторы строк (зацикливание) схлопываются до первого вхождения.
+        var seen: Set<String> = []
+        let unique = prompt.components(separatedBy: "\n").filter { line in
+            let key = line.trimmingCharacters(in: .whitespaces)
+            return key.isEmpty || key.hasPrefix("</") || seen.insert(key).inserted
+        }
+        let lines = unique.filter { line in
+            if line.trimmingCharacters(in: .whitespaces) == "```" { return false }
             if MetaPromptDetector.isMetaPrompt(line, idea: idea) { return false }
             let words = tokenize(line).map(\.word)
             guard !words.isEmpty else { return true }

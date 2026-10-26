@@ -99,7 +99,9 @@ struct SettingsView: View {
                     }
                 }
                 Toggle("Загружать модель при запуске", isOn: $loadAtLaunch)
-                Text("Загруженная модель занимает около \(models.current.sizeLabel) памяти. Без загрузки при запуске первый ⌥⌘P ждёт 2–4 секунды, пока модель читается с диска.")
+                Text(models.current.usesAppMemory
+                    ? "Загруженная модель занимает около \(models.current.sizeLabel) памяти. Без загрузки при запуске первый ⌥⌘P ждёт 2–4 секунды, пока модель читается с диска."
+                    : "Apple Intelligence работает в памяти macOS, а не PromptPolish: выгрузка и загрузка при запуске относятся только к моделям MLX.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Text(models.current.locationDescription)

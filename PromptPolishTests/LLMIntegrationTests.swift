@@ -35,22 +35,24 @@ final class LLMIntegrationTests: XCTestCase {
 
     private var isEnabled: Bool { ProcessInfo.processInfo.environment["PROMPTPOLISH_INTEGRATION"] == "1" }
 
-    /// Модель для прогона: `make integration MODEL=mlx-community/...`, по умолчанию — модель приложения.
-    /// Выбирается так же, как в приложении: копия на диске, иначе скачивание.
-    private var spec: ModelSpec {
+    /// Модель для прогона: `make integration MODEL=mlx-community/...` или `MODEL=apple/foundation-model`,
+    /// по умолчанию — модель приложения. Выбирается так же, как в приложении.
+    private var choice: ModelChoice {
         let id = ProcessInfo.processInfo.environment["PROMPTPOLISH_MODEL"].flatMap { $0.isEmpty ? nil : $0 }
-        let catalog = ModelCatalog.build(local: ModelLocator.standard.scan(), physicalMemory: ProcessInfo.processInfo.physicalMemory)
-        return ModelSpec(for: ModelCatalog.resolve(selectedID: id, installed: catalog.installed, downloads: catalog.downloads))
+        let status = AppleIntelligence.status
+        let catalog = ModelCatalog.build(local: ModelLocator.standard.scan(), physicalMemory: ProcessInfo.processInfo.physicalMemory, appleIntelligence: status)
+        return ModelCatalog.resolve(selectedID: id, installed: catalog.installed, downloads: catalog.downloads)
     }
 
     func testGeneratesPromptsOrQuestions() async throws {
         try XCTSkipUnless(isEnabled, "Интеграционный тест: запустите make integration")
         let builder = try PromptBuilder.bundled()
-        let engine = LLMEngine(spec: spec)
+        let choice = choice
+        let engine = PromptEngines.make(for: choice)
 
         let loadStart = ContinuousClock.now
-        try await engine.prepare()
-        var report = "Модель: \(engine.spec.id) (\(engine.spec.directory?.path(percentEncoded: false) ?? "скачивание"))\nЗагрузка: \(ContinuousClock.now - loadStart)\n"
+        try await engine.prepare { _ in }
+        var report = "Модель: \(choice.id) (\(choice.locationDescription))\nЗагрузка: \(ContinuousClock.now - loadStart)\n"
 
         // Повторяет сценарий ImproveCoordinator: вопросы → ответы → одно исправление дефектов промпта.
         for (rawIdea, target) in Self.samples {
@@ -84,6 +86,7 @@ final class LLMIntegrationTests: XCTestCase {
                 let final = remaining.isEmpty ? text : PromptQuality.removingDefects(from: text, systemPrompt: systemPrompt, idea: idea)
                 XCTAssertFalse(MetaPromptDetector.isMetaPrompt(final, idea: idea), "Мета-промпт для «\(rawIdea)» [\(target.rawValue)]")
                 XCTAssertTrue(PromptQuality.echoedFragments(in: final, systemPrompt: systemPrompt, idea: idea).isEmpty, "Пересказ инструкции для «\(rawIdea)»")
+                XCTAssertFalse(PromptQuality.isDegenerate(final), "Пустой или зацикленный промпт для «\(rawIdea)» [\(target.rawValue)]")
             }
         }
 
@@ -95,8 +98,8 @@ final class LLMIntegrationTests: XCTestCase {
 
     func testCancellationStopsGeneration() async throws {
         try XCTSkipUnless(isEnabled)
-        let engine = LLMEngine(spec: spec)
-        try await engine.prepare()
+        let engine = PromptEngines.make(for: choice)
+        try await engine.prepare { _ in }
 
         var chunks = 0
         let turns = PromptBuilder(systemPrompt: "Ты помощник.").messages(for: "напиши подробный план изучения swift на год")
@@ -114,7 +117,7 @@ final class LLMIntegrationTests: XCTestCase {
         let duration: Duration
     }
 
-    private func run(_ engine: LLMEngine, _ turns: [ChatTurn]) async throws -> Run {
+    private func run(_ engine: any PromptEngine, _ turns: [ChatTurn]) async throws -> Run {
         let start = ContinuousClock.now
         var raw = ""
         var chunks = 0

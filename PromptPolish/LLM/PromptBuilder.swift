@@ -96,6 +96,8 @@ struct PromptBuilder: Sendable {
             case let .templateEcho(fragments):
                 let examples = fragments.prefix(3).map { "«\($0)»" }.joined(separator: ", ")
                 problems.append("- в промпт переписаны правила или описания разделов из твоей инструкции (\(examples)) — убери их и напиши конкретное содержание моей задачи;")
+            case .degenerate:
+                problems.append("- ответ пустой или зациклился (одна строка повторяется) — напиши промпт заново, коротко и без повторов;")
             case let .brokenTags(tags):
                 let names = tags.map { "<\($0)>" }.joined(separator: ", ")
                 problems.append("- теги \(names) не закрыты или закрыты без открытия — каждый раздел должен быть в паре тегов, например <role>…</role>;")
@@ -142,7 +144,7 @@ enum LLMError: LocalizedError {
         switch self {
         case let .missingSystemPrompt(target): "В приложении нет системной инструкции SystemPrompt-\(target).txt."
         case let .invalidModelID(id): "Некорректный идентификатор модели: \(id)."
-        case .emptyOutput: "Модель вернула пустой ответ."
+        case .emptyOutput: "Модель не смогла составить промт. Попробуйте ещё раз или выберите в меню модель побольше."
         }
     }
 }

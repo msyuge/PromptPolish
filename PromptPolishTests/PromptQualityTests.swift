@@ -134,10 +134,50 @@ final class PromptQualityTests: XCTestCase {
     func testBundledChatPromptsHaveNoCopyableSkeleton() throws {
         let builder = try PromptBuilder.bundled()
         for target in ChatTarget.allCases where target != .generic {
+            // Блок кода допустим только в примере хорошего ответа, но не в правилах со структурой.
+            let rules = builder.systemPrompt(for: target).components(separatedBy: "Пример хорошего ответа")[0]
             let prompt = builder.systemPrompt(for: target)
-            XCTAssertFalse(prompt.contains("```\n<"), "\(target): каркас в блоке кода")
-            XCTAssertFalse(prompt.contains("```\n#"), "\(target): каркас в блоке кода")
+            XCTAssertFalse(rules.contains("```\n<"), "\(target): каркас в блоке кода")
+            XCTAssertFalse(rules.contains("```\n#"), "\(target): каркас в блоке кода")
             XCTAssertTrue(prompt.contains("сами описания в промпт не переноси") || target == .perplexity, "\(target): нет запрета копировать описания")
         }
+    }
+
+    func testDegenerateRepliesAreDetected() {
+        XCTAssertTrue(PromptQuality.isDegenerate(""))
+        XCTAssertTrue(PromptQuality.isDegenerate("```\n```"))
+        XCTAssertTrue(PromptQuality.isDegenerate(Array(repeating: "```", count: 40).joined(separator: "\n")))
+        XCTAssertTrue(PromptQuality.isDegenerate("Задача: напиши пост.\n" + Array(repeating: "- кофе", count: 6).joined(separator: "\n")))
+        XCTAssertFalse(PromptQuality.isDegenerate("Задача: напиши пост про кофе для телеграм-канала.\n- тон дружелюбный\n- 1500 знаков"))
+    }
+
+    func testRemovingDefectsCollapsesLoops() {
+        let looped = "Задача: напиши пост про кофе для канала.\n" + Array(repeating: "- кофе", count: 8).joined(separator: "\n") + "\n```\n```"
+
+        let cleaned = PromptQuality.removingDefects(from: looped, systemPrompt: "S", idea: "пост про кофе")
+
+        XCTAssertEqual(cleaned, "Задача: напиши пост про кофе для канала.\n- кофе")
+        XCTAssertFalse(PromptQuality.isDegenerate(cleaned))
+    }
+
+    func testEveryInstructionHasExamplesOfPromptAndQuestions() throws {
+        let builder = try PromptBuilder.bundled()
+        for target in ChatTarget.allCases {
+            let prompt = builder.systemPrompt(for: target)
+            XCTAssertTrue(prompt.contains("Пример хорошего ответа"), "\(target): нет примера промпта")
+            XCTAssertTrue(prompt.contains("не копируй его тему"), "\(target): нет запрета копировать пример")
+            XCTAssertTrue(prompt.contains("\(PromptBuilder.questionsMarker)\n1."), "\(target): нет примера вопросов")
+            guard case let .prompt(example) = ModelReply.parse(prompt.components(separatedBy: "Ответ:\n")[1]) else {
+                return XCTFail("\(target): пример не разбирается как промпт")
+            }
+            XCTAssertTrue(PromptQuality.brokenTags(in: example).isEmpty, "\(target): в примере сломаны теги")
+            XCTAssertFalse(PromptQuality.isDegenerate(example), "\(target): пример слишком короткий")
+        }
+    }
+
+    func testNaturalFiveWordPhraseIsNotEcho() {
+        let system = "**Формат ответа:** таблица со столбцами «модель», «цена», под ней рекомендация."
+        let prompt = "**Формат ответа:** таблица со столбцами «оператор», «тариф», «цена»."
+        XCTAssertEqual(PromptQuality.echoedFragments(in: prompt, systemPrompt: system), [])
     }
 }

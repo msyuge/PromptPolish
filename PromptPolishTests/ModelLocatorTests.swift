@@ -121,6 +121,7 @@ final class ModelCatalogTests: XCTestCase {
         let large = ModelCatalog.build(local: [], physicalMemory: thirtyTwoGB).downloads.map(\.id)
 
         XCTAssertTrue(small.contains("mlx-community/Qwen3.5-4B-MLX-4bit"))
+        XCTAssertTrue(small.contains("mlx-community/Qwen3.5-2B-MLX-4bit"))
         XCTAssertTrue(small.contains("mlx-community/Qwen3.5-0.8B-MLX-4bit"))
         XCTAssertFalse(small.contains("mlx-community/gemma-4-e4b-it-4bit"))
         XCTAssertFalse(small.contains("mlx-community/Qwen3.5-9B-MLX-4bit"))
@@ -131,7 +132,8 @@ final class ModelCatalogTests: XCTestCase {
         let catalog = ModelCatalog.build(local: [local("org/Custom", .lmStudio)], physicalMemory: eightGB)
 
         XCTAssertEqual(ModelCatalog.resolve(selectedID: "org/Custom", installed: catalog.installed, downloads: catalog.downloads).id, "org/Custom")
-        XCTAssertEqual(ModelCatalog.resolve(selectedID: "org/Gone", installed: catalog.installed, downloads: catalog.downloads).id, ModelCatalog.defaultID)
+        XCTAssertEqual(ModelCatalog.resolve(selectedID: "org/Gone", installed: catalog.installed, downloads: catalog.downloads).id, "org/Custom")
+        XCTAssertEqual(ModelCatalog.resolve(selectedID: "org/Gone", installed: [], downloads: catalog.downloads).id, ModelCatalog.defaultID)
         XCTAssertEqual(ModelCatalog.resolve(selectedID: nil, installed: catalog.installed, downloads: []).id, "org/Custom")
     }
 
@@ -141,7 +143,7 @@ final class ModelCatalogTests: XCTestCase {
         let choice = ModelCatalog.resolve(selectedID: nil, installed: catalog.installed, downloads: catalog.downloads)
 
         XCTAssertTrue(choice.isInstalled)
-        XCTAssertEqual(choice.name, "Qwen3.5 4B")
+        XCTAssertEqual(choice.name, "Qwen3.5 2B")
     }
 
     func testUnknownLocalModelIsNamedByFolder() {
@@ -179,5 +181,65 @@ final class ModelUnloadPolicyTests: XCTestCase {
     func testDefaultDelayIsOneOfTheOptions() {
         XCTAssertTrue(ModelStore.unloadDelayOptions.contains { $0.seconds == ModelStore.defaultUnloadDelay })
         XCTAssertTrue(ModelStore.unloadDelayOptions.contains { $0.seconds == 0 })
+    }
+}
+
+final class AppleIntelligenceCatalogTests: XCTestCase {
+    private let eightGB: UInt64 = 8 * 1_073_741_824
+    private let qwen4B = LocalModel(
+        repoID: "mlx-community/Qwen3.5-4B-MLX-4bit",
+        directory: URL(fileURLWithPath: "/models/qwen4"),
+        source: .lmStudio,
+        sizeBytes: 3_000_000_000,
+        modelType: "qwen3_5"
+    )
+
+    func testAppleIntelligenceIsListedLastAndNeverDefault() {
+        let catalog = ModelCatalog.build(local: [qwen4B], physicalMemory: eightGB, appleIntelligence: .available)
+
+        XCTAssertEqual(catalog.installed.last?.id, AppleIntelligence.modelID)
+        let choice = ModelCatalog.resolve(selectedID: nil, installed: catalog.installed, downloads: catalog.downloads)
+        XCTAssertNotEqual(choice.id, AppleIntelligence.modelID)
+    }
+
+    func testAppleIntelligenceCanBeChosenExplicitly() {
+        let catalog = ModelCatalog.build(local: [], physicalMemory: eightGB, appleIntelligence: .available)
+
+        let choice = ModelCatalog.resolve(selectedID: AppleIntelligence.modelID, installed: catalog.installed, downloads: catalog.downloads)
+
+        XCTAssertEqual(choice.id, AppleIntelligence.modelID)
+        XCTAssertFalse(choice.usesAppMemory)
+    }
+
+    func testUnsupportedMacHasNoAppleIntelligence() {
+        let catalog = ModelCatalog.build(local: [qwen4B], physicalMemory: eightGB, appleIntelligence: .unsupported)
+
+        XCTAssertFalse(catalog.installed.contains { $0.id == AppleIntelligence.modelID })
+    }
+
+    func testModelOnDiskIsPreferredOverDownloadingDefault() {
+        let catalog = ModelCatalog.build(local: [qwen4B], physicalMemory: eightGB, appleIntelligence: .available)
+
+        let choice = ModelCatalog.resolve(selectedID: nil, installed: catalog.installed, downloads: catalog.downloads)
+
+        XCTAssertEqual(choice.id, "mlx-community/Qwen3.5-4B-MLX-4bit")
+        XCTAssertTrue(choice.isInstalled)
+    }
+
+    func testEmptyDiskDownloadsSmallDefault() {
+        let catalog = ModelCatalog.build(local: [], physicalMemory: eightGB, appleIntelligence: .available)
+
+        let choice = ModelCatalog.resolve(selectedID: nil, installed: catalog.installed, downloads: catalog.downloads)
+
+        XCTAssertEqual(choice.id, "mlx-community/Qwen3.5-2B-MLX-4bit")
+        XCTAssertEqual(choice.id, ModelCatalog.defaultID)
+        XCTAssertFalse(choice.isInstalled)
+    }
+
+    func testAppleChoiceGetsAppleEngine() {
+        guard #available(macOS 26.0, *) else { return }
+        XCTAssertTrue(PromptEngines.make(for: ModelCatalog.appleIntelligence) is AppleIntelligenceEngine)
+        let catalog = ModelCatalog.build(local: [qwen4B], physicalMemory: eightGB)
+        XCTAssertTrue(PromptEngines.make(for: catalog.installed[0]) is LLMEngine)
     }
 }

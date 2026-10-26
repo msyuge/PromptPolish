@@ -35,11 +35,11 @@ Without this permission PromptPolish can't read text from another app or replace
 
 ## 3. Model
 
-On launch PromptPolish looks for a model in this order:
+**The default is Qwen3.5 2B**: a 1.75 GB model that takes about 2 GB of memory while loaded. On the first ⌥⌘P PromptPolish looks for a model in this order:
 
 1. **LM Studio.** If you already downloaded an MLX model in LM Studio, PromptPolish loads it from LM Studio's folder. No second copy is made and LM Studio doesn't have to be running.
 2. **Hugging Face cache** (`~/.cache/huggingface/hub`).
-3. **Download.** If no model is found, PromptPolish downloads Qwen3.5 4B, about 3 GB. Progress is shown in the menu ("Скачивание модели: 42%") and in Settings. Downloads survive dropped connections, and after that no internet is needed.
+3. **Download.** If no model is found, PromptPolish downloads Qwen3.5 2B, about 1.75 GB. Progress is shown in the menu ("Скачивание модели: 42%") and in Settings. Downloads survive dropped connections, and after that no internet is needed.
 
 To save memory while you aren't using it, the model is loaded on the first ⌥⌘P and unloaded after 5 idle minutes. While it's not loaded the menu says **Модель загрузится при ⌥⌘P** (Model loads on ⌥⌘P), and the next prompt starts 2–4 seconds later. While it's loaded the menu says **Модель готова** (Model ready) and offers **Выгрузить модель из памяти** (Unload model from memory).
 
@@ -50,10 +50,11 @@ To save memory while you aren't using it, the model is loaded on the first ⌥�
 
 | Model | When to choose it |
 |---|---|
-| Qwen3.5 4B | default: best quality on an 8 GB Mac |
-| Qwen3.5 2B | if 4B feels slow; simpler prompts |
-| Qwen3.5 0.8B | only when memory is very tight — noticeably worse quality |
+| Qwen3.5 2B | default: balance of size and quality |
+| Qwen3.5 0.8B | when disk space or memory is very tight; noticeably weaker prompts |
+| Qwen3.5 4B | best quality, but 3 GB and more of memory |
 | Gemma 4 E2B | alternative from Google |
+| Apple Intelligence (experimental) | built into macOS 26+, nothing to download; often wrong in Russian |
 
 The choice is remembered and the previous model is unloaded from memory.
 
@@ -128,7 +129,7 @@ A dot next to a chat means its instruction is customized; a pencil means unsaved
 
 **Everything is slow, the Mac lags.** A loaded model takes 2.5–3.4 GB of memory. In Settings make sure **Загружать модель при запуске** (Load model at launch) is off and **Выгружать из памяти** (Unload from memory) isn't set to never; you can unload the model right away from the menu. Don't keep another model loaded in LM Studio or Ollama, close heavy browser tabs, or switch to Qwen3.5 2B.
 
-**The prompt is odd or inaccurate.** Models with 2–4 billion parameters sometimes get details wrong. Fix the result in the panel before replacing, add more specifics to your idea, or switch to Qwen3.5 4B if you're on a smaller model. If prompts for a particular chat are consistently off, edit its system instruction.
+**The prompt is odd or inaccurate.** Small models sometimes get details wrong, and Qwen3.5 0.8B writes the weakest prompts. Fix the result in the panel before replacing, add more specifics to your idea, or pick a larger model — Qwen3.5 4B — in the menu. If prompts for a particular chat are consistently off, edit its system instruction.
 
 **The model keeps asking questions.** It follows the rule "if the request is vague, ask first". Add who the result is for and what format you need, or remove that rule from the system instruction.
 

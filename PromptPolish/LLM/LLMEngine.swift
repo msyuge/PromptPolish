@@ -43,12 +43,7 @@ struct ModelSpec: Sendable {
 
 /// Локальная генерация через MLX. Модель загружается один раз; параллельные вызовы `prepare`
 /// ждут одну и ту же загрузку. Вся работа идёт вне main thread.
-actor LLMEngine {
-    enum LoadEvent: Sendable {
-        case downloading(fraction: Double)
-        case loading
-    }
-
+actor LLMEngine: PromptEngine {
     nonisolated let spec: ModelSpec
 
     private var container: ModelContainer?
@@ -59,7 +54,7 @@ actor LLMEngine {
     }
 
     /// Загружает модель из её папки или сначала скачивает с Hugging Face.
-    func prepare(onEvent: @escaping @Sendable (LoadEvent) -> Void = { _ in }) async throws {
+    func prepare(onEvent: @escaping @Sendable (ModelLoadEvent) -> Void = { _ in }) async throws {
         _ = try await loadedContainer(onEvent: onEvent)
     }
 
@@ -99,7 +94,7 @@ actor LLMEngine {
         try Task.checkCancellation()
     }
 
-    private func loadedContainer(onEvent: @escaping @Sendable (LoadEvent) -> Void) async throws -> ModelContainer {
+    private func loadedContainer(onEvent: @escaping @Sendable (ModelLoadEvent) -> Void) async throws -> ModelContainer {
         if let container { return container }
         if let loadTask { return try await loadTask.value }
 

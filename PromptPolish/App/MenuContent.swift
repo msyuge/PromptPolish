@@ -31,7 +31,7 @@ struct MenuContent: View {
         if case .failed = models.state {
             Button("Повторить загрузку модели") { models.prepare() }
         }
-        if models.state == .ready {
+        if models.state == .ready, models.current.usesAppMemory {
             Button("Выгрузить модель из памяти") { models.unload() }
         }
 

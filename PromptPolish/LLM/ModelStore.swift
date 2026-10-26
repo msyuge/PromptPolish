@@ -26,14 +26,15 @@ final class ModelStore: ObservableObject {
         case failed(String)
     }
 
-    private static let selectionKey = "selectedModelID"
+    /// Ключ сменён в 1.0.2, чтобы у всех модель выбралась заново по новым правилам (по умолчанию Qwen3.5 2B).
+    private static let selectionKey = "selectedModelID.v2"
 
     @Published private(set) var state: State = .idle
     @Published private(set) var installed: [ModelChoice] = []
     @Published private(set) var downloads: [ModelChoice] = []
     @Published private(set) var current: ModelChoice
     /// Движок текущей модели; при смене модели создаётся новый, а старый освобождается.
-    private(set) var engine: LLMEngine
+    private(set) var engine: any PromptEngine
 
     private let locator: ModelLocator
     private let defaults: UserDefaults
@@ -47,7 +48,8 @@ final class ModelStore: ObservableObject {
     init(locator: ModelLocator = .standard, defaults: UserDefaults = .standard) {
         self.locator = locator
         self.defaults = defaults
-        let catalog = ModelCatalog.build(local: locator.scan(), physicalMemory: physicalMemory)
+        let appleIntelligence = AppleIntelligence.status
+        let catalog = ModelCatalog.build(local: locator.scan(), physicalMemory: physicalMemory, appleIntelligence: appleIntelligence)
         let choice = ModelCatalog.resolve(
             selectedID: defaults.string(forKey: Self.selectionKey),
             installed: catalog.installed,
@@ -56,7 +58,7 @@ final class ModelStore: ObservableObject {
         installed = catalog.installed
         downloads = catalog.downloads
         current = choice
-        engine = LLMEngine(spec: ModelSpec(for: choice))
+        engine = PromptEngines.make(for: choice)
         defaults.register(defaults: [Self.unloadDelayKey: Self.defaultUnloadDelay, Self.loadAtLaunchKey: false])
         Memory.cacheLimit = Self.mlxCacheLimit
         logCatalog()
@@ -88,13 +90,14 @@ final class ModelStore: ObservableObject {
         case .ready, .failed: break
         case .idle, .downloading, .loading: return
         }
-        engine = LLMEngine(spec: ModelSpec(for: current))
+        engine = PromptEngines.make(for: current)
         Memory.clearCache()
         state = .idle
         logger.notice("model unloaded: \(self.current.id, privacy: .public)")
     }
 
     private func unloadIfIdle() {
+        guard current.usesAppMemory else { return }
         let delay = defaults.integer(forKey: Self.unloadDelayKey)
         if Self.shouldUnload(isReady: state == .ready, activeUses: activeUses, lastUsed: lastUsed, now: .now, delay: delay) {
             unload()
@@ -117,7 +120,7 @@ final class ModelStore: ObservableObject {
 
     /// Пересканирует диск: после скачивания модель переезжает из «Скачать» в установленные.
     func refreshCatalog() {
-        let catalog = ModelCatalog.build(local: locator.scan(), physicalMemory: physicalMemory)
+        let catalog = ModelCatalog.build(local: locator.scan(), physicalMemory: physicalMemory, appleIntelligence: AppleIntelligence.status)
         installed = catalog.installed
         downloads = catalog.downloads
         if let copy = catalog.installed.first(where: { $0.id == current.id }) {
@@ -132,7 +135,7 @@ final class ModelStore: ObservableObject {
         current = choice
         defaults.set(choice.id, forKey: Self.selectionKey)
         logger.notice("model selected: \(choice.id, privacy: .public) [\(choice.sourceLabel, privacy: .public)]")
-        engine = LLMEngine(spec: ModelSpec(for: choice))
+        engine = PromptEngines.make(for: choice)
         // Веса старой модели освобождаются вместе с её движком; кэш буферов MLX отдаём системе сразу.
         Memory.clearCache()
         state = .idle
@@ -167,7 +170,7 @@ final class ModelStore: ObservableObject {
         }
     }
 
-    private func apply(_ event: LLMEngine.LoadEvent, from engine: LLMEngine) {
+    private func apply(_ event: ModelLoadEvent, from engine: any PromptEngine) {
         guard engine === self.engine else { return }
         switch state {
         case .downloading, .loading: break
