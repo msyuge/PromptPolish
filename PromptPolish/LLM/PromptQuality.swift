@@ -123,8 +123,8 @@ enum PromptQuality {
     /// Строка, повторённая столько раз, — признак зацикливания маленькой модели.
     private static let loopThreshold = 6
 
-    /// Генерация зациклилась: одна непустая строка повторилась 8 раз. Проверяется во время стриминга,
-    /// чтобы не досчитывать петлю до лимита токенов.
+    /// Генерация зациклилась: одна непустая строка повторилась 8 раз или фраза из 10 слов — 3 раза.
+    /// Проверяется во время стриминга, чтобы не досчитывать петлю до лимита токенов.
     static func isLooping(_ raw: String) -> Bool {
         var counts: [Substring: Int] = [:]
         for line in raw.split(separator: "\n", omittingEmptySubsequences: true) {
@@ -133,10 +133,30 @@ enum PromptQuality {
             counts[key, default: 0] += 1
             if counts[key]! >= 8 { return true }
         }
+        return hasRepeatedPhrase(raw)
+    }
+
+    /// Слов во фразе, повтор которой считается петлёй.
+    private static let loopPhraseLength = 10
+
+    /// Фраза из 10 слов встречается 3 раза. Так выглядит петля, в которой строки отличаются номером пункта
+    /// («6. Не используй…», «7. Не используй…») или повторяется целый блок из нескольких строк.
+    /// Цифры и знаки препинания не учитываются.
+    static func hasRepeatedPhrase(_ text: String) -> Bool {
+        let words = text.lowercased()
+            .components(separatedBy: CharacterSet.letters.inverted)
+            .filter { !$0.isEmpty }
+        guard words.count >= loopPhraseLength * 3 else { return false }
+        var counts: [ArraySlice<String>: Int] = [:]
+        for start in 0...(words.count - loopPhraseLength) {
+            let phrase = words[start..<(start + loopPhraseLength)]
+            counts[phrase, default: 0] += 1
+            if counts[phrase]! >= 3 { return true }
+        }
         return false
     }
 
-    /// Меньше 20 букв или строка, повторённая 6 и более раз (пустые строки и ``` тоже считаются).
+    /// Меньше 20 букв, строка, повторённая 6 и более раз (пустые строки и ``` тоже считаются), или повтор фразы.
     static func isDegenerate(_ prompt: String) -> Bool {
         if prompt.unicodeScalars.filter(CharacterSet.letters.contains).count < 20 { return true }
         var counts: [String: Int] = [:]
@@ -146,7 +166,7 @@ enum PromptQuality {
             counts[key, default: 0] += 1
             if counts[key]! >= loopThreshold { return true }
         }
-        return false
+        return hasRepeatedPhrase(prompt)
     }
 
     /// Куски промпта, совпадающие с инструкцией по 6 и более словам подряд (после нормализации).
@@ -202,11 +222,13 @@ enum PromptQuality {
     /// Последняя мера, если дефекты остались и после исправлений: удаляются строки,
     /// которые больше чем наполовину пересказывают инструкцию или просят написать промпт.
     static func removingDefects(from prompt: String, systemPrompt: String, idea: String) -> String {
-        // Повторы строк (зацикливание) схлопываются до первого вхождения.
+        // Повторы строк (зацикливание) схлопываются до первого вхождения; номер пункта и знаки не учитываются.
         var seen: Set<String> = []
         let unique = prompt.components(separatedBy: "\n").filter { line in
-            let key = line.trimmingCharacters(in: .whitespaces)
-            return key.isEmpty || key.hasPrefix("</") || seen.insert(key).inserted
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            let words = trimmed.lowercased().components(separatedBy: CharacterSet.letters.inverted).filter { !$0.isEmpty }
+            let key = words.count >= 3 ? words.joined(separator: " ") : trimmed
+            return trimmed.isEmpty || trimmed.hasPrefix("</") || seen.insert(key).inserted
         }
         let lines = unique.filter { line in
             if line.trimmingCharacters(in: .whitespaces) == "```" { return false }

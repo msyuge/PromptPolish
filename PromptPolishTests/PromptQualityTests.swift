@@ -256,4 +256,38 @@ final class PromptQualityTests: XCTestCase {
         let prompt = "<task>Добавь тёмную тему.</task>\nВот разметка:\n<html><body><script>"
         XCTAssertEqual(PromptQuality.brokenTags(in: prompt), [])
     }
+
+    func testLoopWithNumberedLinesIsDetected() {
+        let items = (1...4).map { "\($0). Не используй сложные термины без объяснения и примеров из реальной жизни." }
+        let raw = "<constraints>\n" + items.joined(separator: "\n")
+        XCTAssertTrue(PromptQuality.isLooping(raw))
+        XCTAssertTrue(PromptQuality.isDegenerate(raw))
+    }
+
+    func testLoopOfMultilineBlockIsDetected() {
+        let block = "Роль: ты эксперт по кофе.\nЗадача: объясни, как выбрать кофемолку для дома.\n"
+        XCTAssertTrue(PromptQuality.isLooping("Начало.\n" + String(repeating: block, count: 3)))
+    }
+
+    func testLongNormalPromptIsNotLooping() {
+        let prompt = """
+        Роль: ты опытный бариста и автор телеграм-канала о кофе.
+        Задача: напиши пост о том, как выбрать кофемолку для дома.
+        Контекст: читатели — новички, у них капельная кофеварка и турка.
+        Ограничения:
+        1. Не используй сложные термины без объяснения.
+        2. Не советуй конкретные магазины.
+        3. Объём — до 1500 знаков.
+        Формат ответа: заголовок, три коротких абзаца и вывод одним предложением.
+        """
+        XCTAssertFalse(PromptQuality.isLooping(prompt))
+        XCTAssertFalse(PromptQuality.isDegenerate(prompt))
+    }
+
+    func testNumberedLoopIsCollapsed() {
+        let items = (1...5).map { "\($0). Не используй сложные термины без объяснения." }
+        let prompt = "Задача: объясни замыкания в Swift новичку.\n" + items.joined(separator: "\n")
+        let cleaned = PromptQuality.removingDefects(from: prompt, systemPrompt: "", idea: "объясни замыкания")
+        XCTAssertEqual(cleaned, "Задача: объясни замыкания в Swift новичку.\n1. Не используй сложные термины без объяснения.")
+    }
 }
