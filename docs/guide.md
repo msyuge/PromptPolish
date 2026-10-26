@@ -101,7 +101,7 @@ Menu → **Настройки…** (Settings…), or ⌘, while the menu is open
 
 **Системные инструкции** (System instructions) — the rules the model follows when writing a prompt for each chat:
 
-- pick a chat on the left and edit the text on the right;
+- pick a chat on the left and edit the text on the right; the **Русский / English** switch picks the instruction set — Russian is used for ideas written in Cyrillic, English for all others;
 - **Сохранить** (Save, ⌘S) — the change applies from the next ⌥⌘P;
 - **Отменить изменения** (Discard changes) — go back to the saved version;
 - **Сбросить к стандартной** (Reset to default) — restore the instruction shipped with the app;

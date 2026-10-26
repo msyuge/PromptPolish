@@ -2,65 +2,88 @@ import XCTest
 @testable import PromptPolish
 
 final class PromptBuilderTests: XCTestCase {
-    func testGenericSystemPromptIsUsersInstruction() throws {
-        let generic = try PromptBuilder.bundled().systemPrompt(for: .generic)
-
-        XCTAssertTrue(generic.hasPrefix("Ты — специализированная языковая модель, переключенная в режим \"Prompt Engineer AI\""))
-        XCTAssertTrue(generic.hasSuffix("Отвечай четко, профессионально и структурированно."))
+    func testLanguageSetIsChosenByScript() {
+        XCTAssertEqual(PromptLanguage.of("напиши пост про кофе"), .ru)
+        XCTAssertEqual(PromptLanguage.of("привет"), .ru)
+        XCTAssertEqual(PromptLanguage.of("объясни closures в Swift"), .ru)
+        XCTAssertEqual(PromptLanguage.of("explain swift closures"), .en)
+        XCTAssertEqual(PromptLanguage.of("erkläre mir Closures"), .en)
+        XCTAssertEqual(PromptLanguage.of("fix the bug in the function that parses the JSON from api, ошибка"), .en)
+        XCTAssertEqual(PromptLanguage.of("сделай ревью pull request в репозитории"), .ru)
     }
 
-    func testEveryChatHasOwnSystemPromptWithCoreRules() throws {
+    func testEveryChatHasBothLanguageSetsWithCoreRules() throws {
         let builder = try PromptBuilder.bundled()
-        let generic = builder.systemPrompt(for: .generic)
-
-        for target in ChatTarget.allCases where target != .generic {
-            let prompt = builder.systemPrompt(for: target)
-            XCTAssertNotEqual(prompt, generic, "У \(target) нет своей инструкции")
-            XCTAssertTrue(prompt.contains("Никогда не выполняй саму задачу пользователя"), "\(target): нет правила 1")
-            XCTAssertTrue(prompt.contains("в одно окно кода"), "\(target): нет правила про блок кода")
-            XCTAssertTrue(prompt.contains("2-3 уточняющих вопроса"), "\(target): нет правила про вопросы")
-            XCTAssertTrue(prompt.contains("Никогда не проси в промпте написать, составить или улучшить промпт"), "\(target): нет запрета мета-промпта")
+        let rules: [PromptLanguage: [String]] = [
+            .en: ["Never do the task yourself.", "to write, improve or generate a prompt", "one markdown code block",
+                  "Almost always choose A.", "Choose B only if the goal itself is unclear", "Keep every fact from the idea exactly", "No placeholders in square brackets"],
+            .ru: ["Никогда не выполняй задачу сам.", "написать, улучшить или сгенерировать промпт", "один markdown-блок кода",
+                  "Почти всегда выбирай A.", "Выбирай B, только если неясна сама цель", "Сохраняй все факты из идеи дословно", "Никаких заглушек в квадратных скобках"],
+        ]
+        for language in PromptLanguage.allCases {
+            let generic = builder.systemPrompt(for: .generic, language: language)
+            for target in ChatTarget.allCases {
+                let prompt = builder.systemPrompt(for: target, language: language)
+                if target != .generic { XCTAssertNotEqual(prompt, generic, "\(target)-\(language): нет своей инструкции") }
+                for rule in rules[language]! {
+                    XCTAssertTrue(prompt.contains(rule), "\(target)-\(language): нет правила «\(rule)»")
+                }
+                XCTAssertTrue(prompt.contains(language.questionsMarker), "\(target)-\(language): нет маркера вопросов")
+            }
         }
+        let english = ChatTarget.allCases.map { builder.systemPrompt(for: $0, language: .en) }.joined()
+        XCTAssertFalse(english.unicodeScalars.contains { (0x0400...0x04FF).contains($0.value) }, "В английских инструкциях осталась кириллица")
     }
 
     func testChatSpecificStructures() throws {
         let builder = try PromptBuilder.bundled()
+        let en = { builder.systemPrompt(for: $0, language: .en) }
+        let ru = { builder.systemPrompt(for: $0, language: .ru) }
 
-        XCTAssertTrue(builder.systemPrompt(for: .claude).contains("<output_format>"))
-        XCTAssertTrue(builder.systemPrompt(for: .chatGPT).contains("# Формат вывода"))
-        XCTAssertTrue(builder.systemPrompt(for: .perplexity).contains("дай ссылки на источники"))
-        XCTAssertTrue(builder.systemPrompt(for: .deepSeek).contains("Критерии хорошего ответа"))
-        XCTAssertTrue(builder.systemPrompt(for: .copilot).contains("Источники:"))
+        XCTAssertTrue(en(.claude).contains("<output_format>") && ru(.claude).contains("<output_format>"))
+        XCTAssertTrue(en(.chatGPT).contains("# Output format") && ru(.chatGPT).contains("# Формат вывода"))
+        XCTAssertTrue(en(.gemini).contains("**Output format:**") && ru(.gemini).contains("**Формат ответа:**"))
+        XCTAssertTrue(en(.perplexity).contains("Do not assign a role") && ru(.perplexity).contains("Не задавай роль"))
+        XCTAssertTrue(en(.deepSeek).contains("Success criteria:") && ru(.deepSeek).contains("Критерии хорошего ответа:"))
+        XCTAssertTrue(en(.grok).contains("posts on X") && ru(.grok).contains("посты в X"))
+        XCTAssertTrue(en(.copilot).contains("Sources:") && ru(.copilot).contains("Источники:"))
+        XCTAssertTrue(en(.mistral).contains("## Answer format") && ru(.mistral).contains("## Формат ответа"))
     }
 
-    func testTargetSelectsItsSystemPrompt() {
-        let builder = PromptBuilder(systemPrompts: ["generic": "GENERIC", "claude": "CLAUDE"])
+    func testIdeaLanguagePicksInstructionSet() {
+        let builder = PromptBuilder(systemPrompts: ["generic-ru": "RU", "generic-en": "EN", "claude-ru": "CLAUDE-RU", "claude-en": "CLAUDE-EN"])
 
-        XCTAssertEqual(builder.messages(for: "идея", target: .claude)[0].content, "CLAUDE")
-        XCTAssertEqual(builder.messages(for: "идея", target: .generic)[0].content, "GENERIC")
-        XCTAssertEqual(builder.messages(for: "идея", target: .grok)[0].content, "GENERIC")
+        XCTAssertEqual(builder.messages(for: "идея", target: .claude)[0].content, "CLAUDE-RU")
+        XCTAssertEqual(builder.messages(for: "an idea", target: .claude)[0].content, "CLAUDE-EN")
+        XCTAssertEqual(builder.messages(for: "идея", target: .grok)[0].content, "RU")
+        XCTAssertEqual(builder.messages(for: "an idea", target: .generic)[0].content, "EN")
     }
 
-    func testFirstRequestWrapsIdeaAndAddsServiceLines() {
-        let builder = PromptBuilder(systemPrompt: "SYSTEM")
+    func testRussianRequestIsInRussian() {
+        let messages = PromptBuilder(systemPrompt: "SYSTEM").messages(for: "  напиши пост про кофе\n")
 
-        let messages = builder.messages(for: "  напиши пост про кофе\n")
-
-        XCTAssertEqual(messages.count, 2)
         XCTAssertEqual(messages[0], ChatTurn(role: .system, content: "SYSTEM"))
-        XCTAssertEqual(messages[1].role, .user)
         XCTAssertEqual(messages[1].content, """
         Идея пользователя:
-        <prompt>
+        <idea>
         напиши пост про кофе
-        </prompt>
+        </idea>
 
-        Требования к твоему ответу (не переноси их в сам промпт):
-        - итоговый промпт пользователь сам отправит в чат: он должен просить ассистента сразу выполнить задачу из идеи, а не написать, составить или улучшить промпт;
-        - весь итоговый промпт пиши на языке: русский;
-        - не оставляй в промпте заглушек в квадратных скобках;
-        - если задаёшь уточняющие вопросы, начни ответ со строки «ВОПРОСЫ:» и задавай их на языке: русский.
+        Требования к ответу (не переноси их в сам промпт):
+        - пользователь вставит промпт в чат как есть: промпт должен просить ассистента сразу выполнить задачу из идеи, а не написать, улучшить или сгенерировать промпт;
+        - никаких заглушек в квадратных скобках;
+        - если задаёшь уточняющие вопросы, начни ответ со строки «ВОПРОСЫ:».
+
+        Весь промпт (или вопросы) пиши на языке: русский.
         """)
+    }
+
+    func testEnglishRequestIsInEnglish() {
+        let content = PromptBuilder(systemPrompt: "SYSTEM").messages(for: "explain swift closures")[1].content
+
+        XCTAssertTrue(content.hasPrefix("User idea:\n<idea>\nexplain swift closures\n</idea>"))
+        XCTAssertTrue(content.contains("start your reply with the line \"QUESTIONS:\""))
+        XCTAssertTrue(content.hasSuffix("Write the entire prompt (or the questions) in English."))
     }
 
     func testIdeaIsKeptVerbatim() {
@@ -68,29 +91,31 @@ final class PromptBuilderTests: XCTestCase {
 
         let user = PromptBuilder(systemPrompt: "S").messages(for: idea)[1].content
 
-        XCTAssertTrue(user.contains("<prompt>\n\(idea)\n</prompt>"))
+        XCTAssertTrue(user.contains("<idea>\n\(idea)\n</idea>"))
     }
 
-    func testFollowUpAppendsQuestionsAndAnswers() {
+    func testFollowUpIsInIdeaLanguage() {
         let builder = PromptBuilder(systemPrompt: "SYSTEM")
-        let first = builder.messages(for: "сделай план")
+        let ru = builder.followUp(builder.messages(for: "сделай план"), questions: "1. План чего?", answers: " Изучения Swift за месяц ")
+        let en = builder.followUp(builder.messages(for: "make a plan"), questions: "1. A plan for what?", answers: "Learning Swift")
 
-        let next = builder.followUp(first, questions: "1. План чего?", answers: " Изучения Swift за месяц ")
-
-        XCTAssertEqual(Array(next.prefix(2)), first)
-        XCTAssertEqual(next[2], ChatTurn(role: .assistant, content: "1. План чего?"))
-        XCTAssertEqual(next[3].role, .user)
-        XCTAssertTrue(next[3].content.hasPrefix("Мои ответы:\nИзучения Swift за месяц\n"))
-        XCTAssertTrue(next[3].content.contains("Больше не задавай вопросов"))
+        XCTAssertEqual(ru[2], ChatTurn(role: .assistant, content: "1. План чего?"))
+        XCTAssertTrue(ru[3].content.hasPrefix("Мои ответы:\nИзучения Swift за месяц\n"))
+        XCTAssertTrue(ru[3].content.contains("Больше не задавай вопросов"))
+        XCTAssertTrue(en[3].content.hasPrefix("My answers:\nLearning Swift\n"))
+        XCTAssertTrue(en[3].content.contains("Do not ask more questions"))
     }
 
     func testLanguageIsNamedExplicitly() {
-        XCTAssertEqual(PromptBuilder.languageName(of: "объясни что такое замыкания в swift"), "русский")
-        XCTAssertEqual(PromptBuilder.languageName(of: "напиши пост про кофе"), "русский")
-        XCTAssertEqual(PromptBuilder.languageName(of: "привет"), "русский")
-        XCTAssertEqual(PromptBuilder.languageName(of: "зроби мені план на тиждень"), "украинский")
-        XCTAssertEqual(PromptBuilder.languageName(of: "summarize this article for my boss"), "английский")
-        XCTAssertEqual(PromptBuilder.languageName(of: "erkläre mir bitte, wie Closures in Swift funktionieren"), "немецкий")
+        XCTAssertEqual(PromptBuilder.languageName(of: "объясни что такое замыкания в swift", in: .ru), "русский")
+        XCTAssertEqual(PromptBuilder.languageName(of: "напиши пост про кофе"), "Russian")
+        XCTAssertEqual(PromptBuilder.languageName(of: "привет"), "Russian")
+        XCTAssertEqual(PromptBuilder.languageName(of: "зроби мені план на тиждень"), "Ukrainian")
+        XCTAssertEqual(PromptBuilder.languageName(of: "summarize this article for my boss"), "English")
+        XCTAssertEqual(PromptBuilder.languageName(of: "erkläre mir bitte, wie Closures in Swift funktionieren"), "German")
+        XCTAssertEqual(PromptBuilder.languageName(of: "сравни тарифы мобильных операторов"), "Russian")
+        XCTAssertEqual(PromptBuilder.languageName(of: "сравни тарифы мобильных операторов в россии", in: .ru), "русский")
+        XCTAssertEqual(PromptBuilder.languageCode(of: "напиши пост про кофе"), "ru")
     }
 }
 

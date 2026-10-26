@@ -1,12 +1,16 @@
 import SwiftUI
 
-/// Вкладка настроек «Системные инструкции»: список чатов слева, редактор инструкции выбранного чата справа.
-/// Несохранённые правки хранятся отдельно для каждого чата, пока окно открыто.
+/// Вкладка настроек «Системные инструкции»: список чатов слева, редактор инструкции выбранного чата справа,
+/// переключатель комплекта (русский — для идей на кириллице, английский — для остальных).
+/// Несохранённые правки хранятся отдельно для каждого чата и языка, пока окно открыто.
 struct SystemPromptsView: View {
     @ObservedObject var store: SystemPromptStore
     @State private var selection: ChatTarget = .generic
-    @State private var drafts: [ChatTarget: String] = [:]
+    @State private var language: PromptLanguage = .ru
+    @State private var drafts: [SystemPromptStore.Key: String] = [:]
     @State private var errorMessage: String?
+
+    private var key: SystemPromptStore.Key { SystemPromptStore.Key(target: selection, language: language) }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -14,11 +18,11 @@ struct SystemPromptsView: View {
                 HStack {
                     Text(target.instructionsTitle)
                     Spacer()
-                    if drafts[target] != nil {
+                    if PromptLanguage.allCases.contains(where: { drafts[.init(target: target, language: $0)] != nil }) {
                         Image(systemName: "pencil.circle.fill")
                             .foregroundStyle(.orange)
                             .help("Есть несохранённые изменения")
-                    } else if store.isCustomized(target) {
+                    } else if PromptLanguage.allCases.contains(where: { store.isCustomized(target, language: $0) }) {
                         Image(systemName: "circle.fill")
                             .font(.system(size: 7))
                             .foregroundStyle(.tint)
@@ -29,26 +33,34 @@ struct SystemPromptsView: View {
             .listStyle(.sidebar)
             .frame(width: 190)
             Divider()
-            editor(for: selection)
+            editor
         }
         .frame(width: SettingsView.size.width, height: SettingsView.size.height)
         .onAppear { store.reload() }
     }
 
-    private func editor(for target: ChatTarget) -> some View {
+    private var editor: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text(target.instructionsTitle)
+                Text(selection.instructionsTitle)
                     .font(.headline)
-                Text(status(for: target))
+                Text(status)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
+                Picker("Язык инструкции", selection: $language) {
+                    ForEach(PromptLanguage.allCases, id: \.self) { language in
+                        Text(language.title).tag(language)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
             }
 
             TextEditor(text: Binding(
-                get: { drafts[target] ?? store.text(for: target) },
-                set: { text in drafts[target] = text == store.text(for: target) ? nil : text }
+                get: { drafts[key] ?? store.text(for: selection, language: language) },
+                set: { text in drafts[key] = text == store.text(for: selection, language: language) ? nil : text }
             ))
             .font(.body.monospaced())
             .scrollContentBackground(.hidden)
@@ -63,45 +75,45 @@ struct SystemPromptsView: View {
             }
 
             HStack {
-                Button("Сбросить к стандартной") { reset(target) }
-                    .disabled(!store.isCustomized(target) && drafts[target] == nil)
-                Button("Показать файл в Finder") { store.revealInFinder(target) }
+                Button("Сбросить к стандартной") { reset() }
+                    .disabled(!store.isCustomized(selection, language: language) && drafts[key] == nil)
+                Button("Показать файл в Finder") { store.revealInFinder(selection, language: language) }
                 Spacer()
-                Button("Отменить изменения") { drafts[target] = nil }
-                    .disabled(drafts[target] == nil)
-                Button("Сохранить") { save(target) }
+                Button("Отменить изменения") { drafts[key] = nil }
+                    .disabled(drafts[key] == nil)
+                Button("Сохранить") { save() }
                     .keyboardShortcut("s", modifiers: .command)
                     .buttonStyle(.borderedProminent)
-                    .disabled(drafts[target] == nil)
+                    .disabled(drafts[key] == nil)
             }
 
-            Text("Изменения применяются к следующему улучшению промта, перезапуск не нужен. Пустая инструкция означает стандартную.")
+            Text("Русская инструкция используется для идей на кириллице, английская — для остальных. Изменения применяются к следующему улучшению промта; пустая инструкция означает стандартную.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
         .padding(16)
     }
 
-    private func status(for target: ChatTarget) -> String {
-        if drafts[target] != nil { return "не сохранено" }
-        return store.isCustomized(target) ? "изменена" : "стандартная"
+    private var status: String {
+        if drafts[key] != nil { return "не сохранено" }
+        return store.isCustomized(selection, language: language) ? "изменена" : "стандартная"
     }
 
-    private func save(_ target: ChatTarget) {
-        guard let draft = drafts[target] else { return }
+    private func save() {
+        guard let draft = drafts[key] else { return }
         do {
-            try store.save(draft, for: target)
-            drafts[target] = nil
+            try store.save(draft, for: selection, language: language)
+            drafts[key] = nil
             errorMessage = nil
         } catch {
             errorMessage = "Не удалось сохранить: \(error.localizedDescription)"
         }
     }
 
-    private func reset(_ target: ChatTarget) {
+    private func reset() {
         do {
-            try store.reset(target)
-            drafts[target] = nil
+            try store.reset(selection, language: language)
+            drafts[key] = nil
             errorMessage = nil
         } catch {
             errorMessage = "Не удалось сбросить: \(error.localizedDescription)"

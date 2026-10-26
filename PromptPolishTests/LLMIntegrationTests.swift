@@ -17,6 +17,8 @@ final class LLMIntegrationTests: XCTestCase {
         ("сделай план", .generic),
         ("сделай промпт для ассистента, чтобы он добавил в мою macOS-утилиту меню «Системные инструкции» с редактированием", .claude),
         ("Перенести системные инструкции в настройки", .claude),
+        ("explain swift closures to a beginner", .claude),
+        ("write a cover letter for a junior designer job", .chatGPT),
     ]
 
     /// Правдоподобные ответы на уточняющие вопросы для каждой идеи.
@@ -58,7 +60,7 @@ final class LLMIntegrationTests: XCTestCase {
         for (rawIdea, target) in Self.samples {
             let idea = IdeaNormalizer.stripPromptRequest(rawIdea)
             var turns = builder.messages(for: idea, target: target)
-            let systemPrompt = builder.systemPrompt(for: target)
+            let systemPrompt = builder.systemPrompt(for: target, language: PromptLanguage.of(idea))
             var last = try await run(engine, turns)
             report += "\n=== [\(target.rawValue)] \(rawIdea)\n"
             if idea != rawIdea { report += "(идея без обращения к утилите: \(idea))\n" }
@@ -87,6 +89,8 @@ final class LLMIntegrationTests: XCTestCase {
                 XCTAssertFalse(MetaPromptDetector.isMetaPrompt(final, idea: idea), "Мета-промпт для «\(rawIdea)» [\(target.rawValue)]")
                 XCTAssertTrue(PromptQuality.echoedFragments(in: final, systemPrompt: systemPrompt, idea: idea).isEmpty, "Пересказ инструкции для «\(rawIdea)»")
                 XCTAssertFalse(PromptQuality.isDegenerate(final), "Пустой или зацикленный промпт для «\(rawIdea)» [\(target.rawValue)]")
+                report += "--- алфавит: идея \(Script.dominant(in: idea)), промпт \(Script.dominant(in: final))\n"
+                XCTAssertFalse(PromptQuality.isWrongLanguage(final, idea: idea), "Промпт не на языке идеи для «\(rawIdea)» [\(target.rawValue)]")
             }
         }
 
@@ -132,7 +136,6 @@ final class LLMIntegrationTests: XCTestCase {
         let fenced = ModelReply.fencedBlock(in: run.raw) != nil
         switch run.reply {
         case let .prompt(text):
-            XCTAssertFalse(text.isEmpty)
             return "[промт, блок ```: \(fenced)]\n\(text)\n--- чанков: \(run.chunks), время: \(run.duration)\n"
         case let .questions(text):
             return "[вопросы]\n\(text)\n--- чанков: \(run.chunks), время: \(run.duration)\n"

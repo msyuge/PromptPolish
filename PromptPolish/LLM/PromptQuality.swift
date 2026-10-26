@@ -35,6 +35,32 @@ enum PromptIssue: Equatable {
     case brokenTags([String])
     /// Ответ пустой или зациклился: одна и та же строка повторяется много раз.
     case degenerate
+    /// Промпт написан не тем алфавитом, что идея (русская идея — английский промпт и наоборот).
+    case wrongLanguage
+}
+
+/// Алфавит текста. Определитель языка ошибается на коротких фразах (русскую идею про тарифы считает
+/// казахской), а сравнение алфавитов надёжно отличает главный случай — русскую идею и английский промпт.
+enum Script: Equatable {
+    case cyrillic
+    case latin
+    case other
+
+    /// Преобладающий алфавит без XML-тегов и кода: имена тегов разделов остаются английскими в любом промпте.
+    static func dominant(in text: String) -> Script {
+        let plain = text
+            .replacingOccurrences(of: #"(?s)```.*?```"#, with: " ", options: .regularExpression)
+            .replacingOccurrences(of: #"</?[a-z_]+>"#, with: " ", options: .regularExpression)
+        var cyrillic = 0
+        var latin = 0
+        for scalar in plain.unicodeScalars where CharacterSet.letters.contains(scalar) {
+            if (0x0400...0x04FF).contains(scalar.value) { cyrillic += 1 } else if scalar.isASCII { latin += 1 }
+        }
+        guard cyrillic + latin >= 10 else { return .other }
+        if Double(cyrillic) >= Double(cyrillic + latin) * 0.6 { return .cyrillic }
+        if Double(latin) >= Double(cyrillic + latin) * 0.8 { return .latin }
+        return .other
+    }
 }
 
 enum PromptQuality {
@@ -62,7 +88,17 @@ enum PromptQuality {
         if isDegenerate(prompt) {
             issues.append(.degenerate)
         }
+        if isWrongLanguage(prompt, idea: idea) {
+            issues.append(.wrongLanguage)
+        }
         return issues
+    }
+
+    /// Русская идея — английский промпт или английская идея — русский промпт.
+    static func isWrongLanguage(_ prompt: String, idea: String) -> Bool {
+        let expected = Script.dominant(in: idea)
+        let actual = Script.dominant(in: prompt)
+        return expected != .other && actual != .other && expected != actual
     }
 
     /// Строка, повторённая столько раз, — признак зацикливания маленькой модели.

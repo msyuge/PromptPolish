@@ -29,8 +29,8 @@ enum ModelReply: Equatable {
     /// Вопросы, если в ответе есть маркер. Маленькая модель ставит его не только в начале и иногда повторяет,
     /// поэтому все вхождения маркера (в том числе жирные) вырезаются, а остальной текст сохраняется.
     private static func questions(in text: String) -> String? {
-        // Для английской идеи модель переводит маркер вместе с вопросами.
-        let markers = [PromptBuilder.questionsMarker, "QUESTIONS:"]
+        // Модель иногда переводит маркер на язык идеи вместе с вопросами.
+        let markers = PromptBuilder.questionsMarkers
         guard markers.contains(where: { text.range(of: $0, options: .caseInsensitive) != nil }) else { return nil }
         var withoutMarkers = text
         for marker in markers {

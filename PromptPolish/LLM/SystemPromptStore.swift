@@ -1,16 +1,21 @@
 import AppKit
 
-/// Системные инструкции по чатам: стандартные из ресурсов приложения и правки пользователя поверх них.
-/// Правки хранятся как `SystemPrompt-<чат>.txt` в `~/Library/Application Support/PromptPolish/SystemPrompts`,
+/// Системные инструкции по чатам и языкам: стандартные из ресурсов приложения и правки пользователя поверх них.
+/// Правки хранятся как `SystemPrompt-<чат>-<язык>.txt` в `~/Library/Application Support/PromptPolish/SystemPrompts`,
 /// поэтому переживают переустановку и их можно править в любом редакторе.
 @MainActor
 final class SystemPromptStore: ObservableObject {
-    @Published private(set) var overrides: [ChatTarget: String] = [:]
+    struct Key: Hashable, Sendable {
+        let target: ChatTarget
+        let language: PromptLanguage
+    }
 
-    let defaults: [ChatTarget: String]
+    @Published private(set) var overrides: [Key: String] = [:]
+
+    let defaults: [Key: String]
     let directory: URL
 
-    init(defaults: [ChatTarget: String], directory: URL = SystemPromptStore.standardDirectory) {
+    init(defaults: [Key: String], directory: URL = SystemPromptStore.standardDirectory) {
         self.defaults = defaults
         self.directory = directory
         reload()
@@ -19,7 +24,12 @@ final class SystemPromptStore: ObservableObject {
     /// Стандартные инструкции из бандла; их отсутствие — дефект сборки.
     static func bundled() -> SystemPromptStore {
         let builder = PromptBuilder.bundledOrFail()
-        let defaults = Dictionary(uniqueKeysWithValues: ChatTarget.allCases.map { ($0, builder.systemPrompt(for: $0)) })
+        var defaults: [Key: String] = [:]
+        for target in ChatTarget.allCases {
+            for language in PromptLanguage.allCases {
+                defaults[Key(target: target, language: language)] = builder.systemPrompt(for: target, language: language)
+            }
+        }
         return SystemPromptStore(defaults: defaults)
     }
 
@@ -29,56 +39,66 @@ final class SystemPromptStore: ObservableObject {
 
     /// Инструкции, с которыми сейчас работает утилита.
     var builder: PromptBuilder {
-        PromptBuilder(systemPrompts: Dictionary(uniqueKeysWithValues: ChatTarget.allCases.map { ($0.rawValue, text(for: $0)) }))
+        var prompts: [String: String] = [:]
+        for target in ChatTarget.allCases {
+            for language in PromptLanguage.allCases {
+                prompts[PromptBuilder.key(target, language)] = text(for: target, language: language)
+            }
+        }
+        return PromptBuilder(systemPrompts: prompts)
     }
 
-    func text(for target: ChatTarget) -> String {
-        overrides[target] ?? defaults[target] ?? ""
+    func text(for target: ChatTarget, language: PromptLanguage) -> String {
+        let key = Key(target: target, language: language)
+        return overrides[key] ?? defaults[key] ?? ""
     }
 
-    func isCustomized(_ target: ChatTarget) -> Bool {
-        overrides[target] != nil
+    func isCustomized(_ target: ChatTarget, language: PromptLanguage) -> Bool {
+        overrides[Key(target: target, language: language)] != nil
     }
 
-    func fileURL(for target: ChatTarget) -> URL {
-        directory.appending(path: "SystemPrompt-\(target.rawValue).txt")
+    func fileURL(for target: ChatTarget, language: PromptLanguage) -> URL {
+        directory.appending(path: "SystemPrompt-\(PromptBuilder.key(target, language)).txt")
     }
 
     /// Сохраняет правку. Пустой текст или текст, совпадающий со стандартным, означает «без правки».
-    func save(_ text: String, for target: ChatTarget) throws {
+    func save(_ text: String, for target: ChatTarget, language: PromptLanguage) throws {
+        let key = Key(target: target, language: language)
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, trimmed != defaults[target] else {
-            try reset(target)
+        guard !trimmed.isEmpty, trimmed != defaults[key] else {
+            try reset(target, language: language)
             return
         }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try trimmed.write(to: fileURL(for: target), atomically: true, encoding: .utf8)
-        overrides[target] = trimmed
+        try trimmed.write(to: fileURL(for: target, language: language), atomically: true, encoding: .utf8)
+        overrides[key] = trimmed
     }
 
     /// Возвращает стандартную инструкцию.
-    func reset(_ target: ChatTarget) throws {
-        let url = fileURL(for: target)
+    func reset(_ target: ChatTarget, language: PromptLanguage) throws {
+        let url = fileURL(for: target, language: language)
         if FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) {
             try FileManager.default.removeItem(at: url)
         }
-        overrides[target] = nil
+        overrides[Key(target: target, language: language)] = nil
     }
 
     /// Перечитывает правки с диска — на случай, если файл изменили во внешнем редакторе.
     func reload() {
-        var loaded: [ChatTarget: String] = [:]
+        var loaded: [Key: String] = [:]
         for target in ChatTarget.allCases {
-            guard let text = try? String(contentsOf: fileURL(for: target), encoding: .utf8) else { continue }
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty { loaded[target] = trimmed }
+            for language in PromptLanguage.allCases {
+                guard let text = try? String(contentsOf: fileURL(for: target, language: language), encoding: .utf8) else { continue }
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { loaded[Key(target: target, language: language)] = trimmed }
+            }
         }
         overrides = loaded
     }
 
     /// Показывает файл правки в Finder (или папку, если правки ещё нет).
-    func revealInFinder(_ target: ChatTarget) {
-        let url = fileURL(for: target)
+    func revealInFinder(_ target: ChatTarget, language: PromptLanguage) {
+        let url = fileURL(for: target, language: language)
         if FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) {
             NSWorkspace.shared.activateFileViewerSelecting([url])
         } else {

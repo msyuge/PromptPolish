@@ -103,14 +103,16 @@ An MLX model is loaded into memory on the first ⌥⌘P and unloaded after 5 idl
 
 ### System instructions
 
-Each chat's system instruction can be edited in **Настройки → Системные инструкции** (Settings → System instructions):
+Every chat has two system instructions with the same rules: a Russian one, used for ideas written in Cyrillic, and an English one, used for all other ideas. The prompt comes out in the idea's language — a small model keeps the language reliably only when its instructions are in that language too. Each instruction defines the reply contract (one code block with the prompt, or clarifying questions only when the goal itself is unclear), the rules (never do the task, keep the user's facts, no placeholders, 80–250 words), the structure recommended by the chat's vendor, and a worked example.
 
-- the list of chats is on the left (a dot means the instruction is customized, a pencil means unsaved edits), the editor is on the right;
+They can be edited in **Настройки → Системные инструкции** (Settings → System instructions):
+
+- the list of chats is on the left (a dot means the instruction is customized, a pencil means unsaved edits), the editor is on the right, and the **Русский / English** switch picks the set;
 - **Сохранить** (Save, ⌘S) applies the change to the next ⌥⌘P, no restart needed;
 - **Сбросить к стандартной** (Reset to default) restores the instruction shipped with the app;
-- **Показать файл в Finder** (Show file in Finder) — edits are stored in `~/Library/Application Support/PromptPolish/SystemPrompts/SystemPrompt-<chat>.txt` and can be edited in any text editor.
+- **Показать файл в Finder** (Show file in Finder) — edits are stored in `~/Library/Application Support/PromptPolish/SystemPrompts/SystemPrompt-<chat>-<ru|en>.txt` and can be edited in any text editor.
 
-The default instructions live in `PromptPolish/Resources/SystemPrompts/`.
+The default instructions live in `PromptPolish/Resources/SystemPrompts/` and are generated from shared rules by `scripts/make-system-prompts.py` — edit the script, not the files, and rerun it.
 
 ## Known limitations
 

@@ -126,7 +126,8 @@ final class PromptQualityTests: XCTestCase {
         let next = builder.correcting(history, reply: "ответ", issues: [.metaTask, .templateEcho(["зачем нужна задача для кого результат"]), .brokenTags(["role"])])
 
         XCTAssertEqual(next[2], ChatTurn(role: .assistant, content: "ответ"))
-        XCTAssertTrue(next[3].content.contains("просит написать промпт"))
+        XCTAssertTrue(next[3].content.hasPrefix("Исправь промпт:"))
+        XCTAssertTrue(next[3].content.contains("промпт просит написать промпт"))
         XCTAssertTrue(next[3].content.contains("«зачем нужна задача для кого результат»"))
         XCTAssertTrue(next[3].content.contains("<role>"))
     }
@@ -134,12 +135,15 @@ final class PromptQualityTests: XCTestCase {
     func testBundledChatPromptsHaveNoCopyableSkeleton() throws {
         let builder = try PromptBuilder.bundled()
         for target in ChatTarget.allCases where target != .generic {
+            for language in PromptLanguage.allCases {
             // Блок кода допустим только в примере хорошего ответа, но не в правилах со структурой.
-            let rules = builder.systemPrompt(for: target).components(separatedBy: "Пример хорошего ответа")[0]
-            let prompt = builder.systemPrompt(for: target)
+            let prompt = builder.systemPrompt(for: target, language: language)
+            let rules = prompt.components(separatedBy: language == .ru ? "\nПример." : "\nExample.")[0]
             XCTAssertFalse(rules.contains("```\n<"), "\(target): каркас в блоке кода")
             XCTAssertFalse(rules.contains("```\n#"), "\(target): каркас в блоке кода")
-            XCTAssertTrue(prompt.contains("сами описания в промпт не переноси") || target == .perplexity, "\(target): нет запрета копировать описания")
+            let noCopy = language == .ru ? "пиши содержание задачи пользователя, а не описание" : "write the user's content, not the description"
+            XCTAssertTrue(prompt.contains(noCopy) || target == .perplexity, "\(target)-\(language): нет запрета копировать описания")
+            }
         }
     }
 
@@ -163,15 +167,18 @@ final class PromptQualityTests: XCTestCase {
     func testEveryInstructionHasExamplesOfPromptAndQuestions() throws {
         let builder = try PromptBuilder.bundled()
         for target in ChatTarget.allCases {
-            let prompt = builder.systemPrompt(for: target)
-            XCTAssertTrue(prompt.contains("Пример хорошего ответа"), "\(target): нет примера промпта")
-            XCTAssertTrue(prompt.contains("не копируй его тему"), "\(target): нет запрета копировать пример")
-            XCTAssertTrue(prompt.contains("\(PromptBuilder.questionsMarker)\n1."), "\(target): нет примера вопросов")
-            guard case let .prompt(example) = ModelReply.parse(prompt.components(separatedBy: "Ответ:\n")[1]) else {
+            for language in PromptLanguage.allCases {
+            let prompt = builder.systemPrompt(for: target, language: language)
+            let ru = language == .ru
+            XCTAssertTrue(prompt.contains(ru ? "\nПример. Он показывает только форму" : "\nExample. It shows only the shape"), "\(target)-\(language): нет примера промпта")
+            XCTAssertTrue(prompt.contains(ru ? "а не из примера" : "never from the example"), "\(target)-\(language): нет запрета копировать пример")
+            XCTAssertTrue(prompt.contains("\(language.questionsMarker)\n1."), "\(target)-\(language): нет примера вопросов")
+            guard case let .prompt(example) = ModelReply.parse(prompt.components(separatedBy: ru ? "Ответ:\n" : "Reply:\n")[1]) else {
                 return XCTFail("\(target): пример не разбирается как промпт")
             }
             XCTAssertTrue(PromptQuality.brokenTags(in: example).isEmpty, "\(target): в примере сломаны теги")
             XCTAssertFalse(PromptQuality.isDegenerate(example), "\(target): пример слишком короткий")
+            }
         }
     }
 
@@ -179,5 +186,26 @@ final class PromptQualityTests: XCTestCase {
         let system = "**Формат ответа:** таблица со столбцами «модель», «цена», под ней рекомендация."
         let prompt = "**Формат ответа:** таблица со столбцами «оператор», «тариф», «цена»."
         XCTAssertEqual(PromptQuality.echoedFragments(in: prompt, systemPrompt: system), [])
+    }
+
+    func testWrongLanguageIsDetectedByScript() {
+        let idea = "сравни тарифы мобильных операторов в россии"
+
+        XCTAssertTrue(PromptQuality.isWrongLanguage("Task: compare mobile plans in Russia.\nRequirements:\n- price", idea: idea))
+        XCTAssertFalse(PromptQuality.isWrongLanguage("<task>Сравни тарифы мобильных операторов.</task>\n<output_format>Таблица.</output_format>", idea: idea))
+        XCTAssertTrue(PromptQuality.isWrongLanguage("Задача: кратко перескажи статью.", idea: "summarize this article for my boss"))
+        XCTAssertFalse(PromptQuality.isWrongLanguage("Summarize the article below in 5 bullet points.", idea: "summarize this article for my boss"))
+        XCTAssertTrue(PromptQuality.issues(in: "Task: compare mobile plans in Russia, with prices.", idea: idea, systemPrompt: "S").contains(.wrongLanguage))
+    }
+
+    func testWrongLanguageCorrectionNamesLanguageInBothLanguages() {
+        let builder = PromptBuilder(systemPrompt: "S")
+        let history = builder.messages(for: "сравни тарифы мобильных операторов")
+
+        let next = builder.correcting(history, reply: "Task: compare plans.", issues: [.wrongLanguage])
+
+        XCTAssertTrue(next[3].content.contains("перепиши весь промпт на языке: русский"))
+        let english = builder.correcting(builder.messages(for: "compare mobile plans"), reply: "Задача: сравни.", issues: [.wrongLanguage])
+        XCTAssertTrue(english[3].content.contains("rewrite the whole prompt in English"))
     }
 }
